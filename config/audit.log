@@ -50,3 +50,40 @@
 [2026-05-10T15:52:48.672669] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
 [2026-05-10T15:52:48.753335] user=admin action=DECRYPT_BACKUP_AUTH_FAIL detail= ip=127.0.0.1
 [2026-05-10T15:52:48.842106] user=admin action=DECRYPTED_BACKUP detail= ip=127.0.0.1
+[2026-05-10T20:32:35.209735] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T21:03:54.600778] user=admin action=LOGIN_SUCCESS detail= ip=192.168.31.222
+[2026-05-10T21:03:54.788485] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:10:45.411663] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T21:11:21.983512] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T21:11:46.713689] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T21:11:47.413956] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T21:13:33.039456] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T21:13:39.270439] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T21:13:54.453135] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T21:13:54.553249] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=127.0.0.1
+[2026-05-10T21:13:54.729854] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=127.0.0.1
+[2026-05-10T21:15:33.837942] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:15:38.352725] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:15:44.704530] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:15:48.505517] user=admin action=VIEW_DIARY detail=date=2026-05-12 ip=192.168.31.222
+[2026-05-10T21:15:56.596812] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:16:24.167168] user=admin action=VIEW_STATS detail= ip=192.168.31.222
+[2026-05-10T21:16:37.009627] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:17:53.798481] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T21:18:08.565075] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T21:19:17.856080] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:20:13.882588] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T21:20:34.858924] user=admin action=SAVE_DIARY detail=date=2026-05-10 size=38 ip=192.168.31.222
+[2026-05-10T21:21:15.982864] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:21:21.253829] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:21:25.693979] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:21:26.727427] user=admin action=VIEW_STATS detail= ip=192.168.31.222
+[2026-05-10T21:21:33.734062] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:21:34.580250] user=admin action=VIEW_STATS detail= ip=192.168.31.222
+[2026-05-10T21:21:41.633003] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:21:42.328302] user=admin action=VIEW_STATS detail= ip=192.168.31.222
+[2026-05-10T21:21:49.732282] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:21:56.838624] user=admin action=VIEW_STATS detail= ip=192.168.31.222
+[2026-05-10T21:22:19.287753] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T21:22:20.960475] user=admin action=VIEW_STATS detail= ip=192.168.31.222
+[2026-05-10T21:22:25.236856] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222

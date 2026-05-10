@@ -5,8 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>📝 本地日记本</title>
-    <!-- marked.js CDN for proper Markdown rendering -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer onerror="window.markedFallback=true"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -359,7 +357,6 @@
 
         .preview-pane h1 { font-size: 1.8rem; margin-bottom: 1rem; color: var(--primary); }
         .preview-pane h2 { font-size: 1.4rem; margin: 1.5rem 0 0.8rem; }
-        .preview-pane h3 { font-size: 1.2rem; margin: 1.2rem 0 0.6rem; }
         .preview-pane p { margin-bottom: 0.8rem; }
         .preview-pane code {
             background: #f0f0f0;
@@ -375,25 +372,6 @@
             margin-bottom: 1rem;
         }
         .preview-pane ul, .preview-pane ol { margin-left: 1.5rem; margin-bottom: 1rem; }
-        .preview-pane a { color: var(--primary); }
-        .preview-pane img { max-width: 100%; border-radius: 8px; }
-        .preview-pane blockquote {
-            border-left: 4px solid var(--primary);
-            padding-left: 1rem;
-            margin: 1rem 0;
-            color: var(--text-light);
-        }
-        .preview-pane table {
-            border-collapse: collapse;
-            width: 100%;
-            margin-bottom: 1rem;
-        }
-        .preview-pane th, .preview-pane td {
-            border: 1px solid var(--border);
-            padding: 0.5rem;
-            text-align: left;
-        }
-        .preview-pane th { background: #f0f0f0; }
 
         /* 日历 */
         .calendar {
@@ -535,24 +513,6 @@
         /* 加载动画 */
         .loading { text-align: center; padding: 2rem; color: var(--text-light); }
 
-        /* 密码修改提示 */
-        .password-warning {
-            background: #fff3cd;
-            border: 1px solid #ffc107;
-            border-radius: 8px;
-            padding: 1rem 1.5rem;
-            margin-bottom: 1.5rem;
-            display: none;
-        }
-        .password-warning.show { display: block; }
-        .password-warning p { margin-bottom: 0.5rem; }
-        .password-warning .close-btn {
-            float: right;
-            cursor: pointer;
-            font-size: 1.2rem;
-            color: var(--text-light);
-        }
-
         /* 响应式 - 平板 */
         @media (max-width: 1024px) {
             .editor-body { grid-template-columns: 1fr; }
@@ -675,7 +635,7 @@
             <h1>📝 本地日记本</h1>
             <p class="subtitle">安全增强版 · 数据本地存储</p>
             <div class="login-error" id="loginError"></div>
-            <form id="loginForm">
+            <form id="loginForm" onsubmit="return handleLogin(event)">
                 <div class="form-group">
                     <label>用户名</label>
                     <input type="text" id="loginUsername" placeholder="admin" autocomplete="username" required>
@@ -698,23 +658,16 @@
         <div class="lock-box">
             <h2>🔒 会话已锁定</h2>
             <p>长时间未操作，请重新登录</p>
-            <input type="password" id="lockPassword" placeholder="输入密码解锁">
-            <button class="login-btn" id="unlockBtn">解锁</button>
+            <input type="password" id="lockPassword" placeholder="输入密码解锁" onkeydown="if(event.key==='Enter') handleUnlock()">
+            <button class="login-btn" onclick="handleUnlock()">解锁</button>
             <p style="margin-top: 1rem;">
-                <a href="#" id="logoutFromLock" style="color: var(--primary);">退出登录</a>
+                <a href="#" onclick="handleLogout(); return false;" style="color: var(--primary);">退出登录</a>
             </p>
         </div>
     </div>
 
     <!-- 主应用 -->
     <div id="appContainer" style="display: none;">
-        <!-- 密码修改提示 -->
-        <div class="password-warning" id="passwordWarning">
-            <span class="close-btn" onclick="dismissPasswordWarning()">&times;</span>
-            <p>⚠️ <strong>首次登录提示</strong>：你还在使用默认密码，请尽快修改！</p>
-            <button class="btn btn-primary" onclick="showView('settings'); document.getElementById('oldPassword').focus();">立即修改密码</button>
-        </div>
-
         <!-- 导航栏 -->
         <nav class="navbar">
             <div class="nav-left">
@@ -722,21 +675,21 @@
                 <span class="encryption-badge" id="encryptionBadge">🔐 已加密</span>
             </div>
             <div class="nav-links">
-                <button class="nav-link active" data-view="list">📋 列表</button>
-                <button class="nav-link" data-view="calendar">📅 日历</button>
-                <button class="nav-link" data-view="editor">✏️ 写日记</button>
-                <button class="nav-link" data-view="stats">📊 统计</button>
-                <button class="nav-link" data-view="audit">📜 日志</button>
-                <button class="nav-link" data-view="settings">⚙️ 设置</button>
+                <button class="nav-link active" onclick="showView('list')">📋 列表</button>
+                <button class="nav-link" onclick="showView('calendar')">📅 日历</button>
+                <button class="nav-link" onclick="showView('editor')">✏️ 写日记</button>
+                <button class="nav-link" onclick="showView('stats')">📊 统计</button>
+                <button class="nav-link" onclick="showView('audit')">📜 日志</button>
+                <button class="nav-link" onclick="showView('settings')">⚙️ 设置</button>
             </div>
             <div class="nav-right">
                 <div class="search-bar">
-                    <input type="text" id="searchInput" placeholder="搜索日记...">
+                    <input type="text" id="searchInput" placeholder="搜索日记..." onkeydown="if(event.key==='Enter') searchDiaries()">
                 </div>
                 <div class="user-info">
                     <span id="currentUser">admin</span>
                 </div>
-                <button class="lock-btn" id="lockBtn" title="锁屏">🔒</button>
+                <button class="lock-btn" onclick="lockScreen()" title="锁屏">🔒</button>
             </div>
         </nav>
 
@@ -755,8 +708,8 @@
                     <div class="calendar-header">
                         <h2 id="calendarTitle">2026年 5月</h2>
                         <div class="calendar-nav">
-                            <button id="prevMonth">◀</button>
-                            <button id="nextMonth">▶</button>
+                            <button onclick="changeMonth(-1)">◀</button>
+                            <button onclick="changeMonth(1)">▶</button>
                         </div>
                     </div>
                     <div class="calendar-grid" id="calendarGrid"></div>
@@ -770,10 +723,10 @@
                         <input type="date" id="editorDate" class="date-input">
                         <div class="editor-actions">
                             <span class="autosave-indicator" id="autosaveIndicator"></span>
-                            <button class="btn btn-secondary" id="previewBtn">预览</button>
-                            <button class="btn btn-secondary" id="downloadBtn">⬇ 导出</button>
-                            <button class="btn btn-primary" id="saveBtn">💾 保存</button>
-                            <button class="btn btn-danger" id="deleteBtn">🗑️ 删除</button>
+                            <button class="btn btn-secondary" onclick="previewMarkdown()">预览</button>
+                            <button class="btn btn-secondary" onclick="downloadDiary()">⬇ 导出</button>
+                            <button class="btn btn-primary" onclick="saveDiary()">💾 保存</button>
+                            <button class="btn btn-danger" onclick="deleteDiary()">🗑️ 删除</button>
                         </div>
                     </div>
                     <div class="editor-body">
@@ -845,7 +798,7 @@
                                 <label>确认新密码</label>
                                 <input type="password" id="confirmPassword" style="max-width: 300px;">
                             </div>
-                            <button class="btn btn-primary" id="changePasswordBtn">修改密码</button>
+                            <button class="btn btn-primary" onclick="changePassword()">修改密码</button>
                         </div>
                     </div>
 
@@ -861,23 +814,23 @@
                                 <div class="setting-label">下载加密备份</div>
                                 <div class="setting-desc">将所有日记打包为加密 ZIP 文件下载</div>
                             </div>
-                            <button class="btn btn-primary" id="downloadBackupBtn">⬇ 下载加密备份</button>
+                            <button class="btn btn-primary" onclick="downloadBackup()">⬇ 下载加密备份</button>
                         </div>
                         <div class="setting-row">
                             <div>
                                 <div class="setting-label">下载明文备份</div>
                                 <div class="setting-desc">下载已解明的 ZIP（⚠️ 请妥善保管！）</div>
                             </div>
-                            <button class="btn btn-warning" id="downloadDecryptedBackupBtn">⬇ 下载明文备份</button>
+                            <button class="btn btn-warning" onclick="downloadDecryptedBackup()">⬇ 下载明文备份</button>
                         </div>
                         <div class="setting-row">
                             <div>
                                 <div class="setting-label">从备份恢复</div>
                                 <div class="setting-desc">上传之前下载的 ZIP 备份文件</div>
                             </div>
-                            <button class="btn btn-secondary" id="restoreBtn">📂 选择文件</button>
+                            <button class="btn btn-secondary" onclick="document.getElementById('restoreFileInput').click()">📂 选择文件</button>
                         </div>
-                        <input type="file" id="restoreFileInput" accept=".zip" style="display:none">
+                        <input type="file" id="restoreFileInput" accept=".zip" style="display:none" onchange="restoreBackup(this)">
                         <div id="restoreProgress" style="display:none; margin-top: 0.5rem; padding: 0.8rem; background: var(--bg); border-radius: 8px;"></div>
                     </div>
 
@@ -894,7 +847,7 @@
                                 <div class="setting-label">当前会话</div>
                                 <div class="setting-value" id="sessionInfo">-</div>
                             </div>
-                            <button class="btn btn-danger" id="logoutBtn">退出登录</button>
+                            <button class="btn btn-danger" onclick="handleLogout()">退出登录</button>
                         </div>
                     </div>
                 </div>
@@ -903,23 +856,23 @@
 
         <!-- 移动端底部导航 -->
         <nav class="mobile-bottom-nav" id="mobileNav">
-            <div class="mobile-nav-item active" data-view="list">
+            <div class="mobile-nav-item active" onclick="showView('list')">
                 <span class="icon">📋</span>
                 <span>列表</span>
             </div>
-            <div class="mobile-nav-item" data-view="calendar">
+            <div class="mobile-nav-item" onclick="showView('calendar')">
                 <span class="icon">📅</span>
                 <span>日历</span>
             </div>
-            <div class="mobile-nav-item" data-view="editor">
+            <div class="mobile-nav-item" onclick="showView('editor')">
                 <span class="icon">✏️</span>
                 <span>写日记</span>
             </div>
-            <div class="mobile-nav-item" data-view="stats">
+            <div class="mobile-nav-item" onclick="showView('stats')">
                 <span class="icon">📊</span>
                 <span>统计</span>
             </div>
-            <div class="mobile-nav-item" data-view="settings">
+            <div class="mobile-nav-item" onclick="showView('settings')">
                 <span class="icon">⚙️</span>
                 <span>设置</span>
             </div>
@@ -955,10 +908,6 @@
 
                 if (data.authenticated) {
                     currentUser = data.username;
-                    // 检查是否未改过密码
-                    if (!data.password_changed) {
-                        document.getElementById('passwordWarning').classList.add('show');
-                    }
                     showApp();
                 } else {
                     localStorage.removeItem('diary_token');
@@ -982,66 +931,6 @@
             document.getElementById('lockScreen').classList.remove('show');
             document.getElementById('currentUser').textContent = currentUser;
             resetIdleTimer();
-        }
-
-        function dismissPasswordWarning() {
-            document.getElementById('passwordWarning').classList.remove('show');
-        }
-
-        // ─── 事件绑定（替代 onclick 内联）──────────────
-        function bindEvents() {
-            // 登录表单
-            document.getElementById('loginForm').addEventListener('submit', handleLogin);
-
-            // 锁屏
-            document.getElementById('lockBtn').addEventListener('click', lockScreen);
-            document.getElementById('unlockBtn').addEventListener('click', handleUnlock);
-            document.getElementById('lockPassword').addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') handleUnlock();
-            });
-            document.getElementById('logoutFromLock').addEventListener('click', (e) => {
-                e.preventDefault();
-                handleLogout();
-            });
-
-            // 登出
-            document.getElementById('logoutBtn').addEventListener('click', handleLogout);
-
-            // 搜索
-            document.getElementById('searchInput').addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') searchDiaries();
-            });
-
-            // 导航
-            document.querySelectorAll('.nav-link, .mobile-nav-item').forEach(el => {
-                el.addEventListener('click', () => showView(el.dataset.view));
-            });
-
-            // 月份切换
-            document.getElementById('prevMonth').addEventListener('click', () => changeMonth(-1));
-            document.getElementById('nextMonth').addEventListener('click', () => changeMonth(1));
-
-            // 编辑器操作
-            document.getElementById('saveBtn').addEventListener('click', saveDiary);
-            document.getElementById('deleteBtn').addEventListener('click', deleteDiary);
-            document.getElementById('previewBtn').addEventListener('click', previewMarkdown);
-            document.getElementById('downloadBtn').addEventListener('click', downloadDiary);
-
-            // 实时预览
-            document.getElementById('editorContent').addEventListener('input', () => {
-                previewMarkdown();
-            });
-
-            // 密码修改
-            document.getElementById('changePasswordBtn').addEventListener('click', changePassword);
-
-            // 备份
-            document.getElementById('downloadBackupBtn').addEventListener('click', downloadBackup);
-            document.getElementById('downloadDecryptedBackupBtn').addEventListener('click', downloadDecryptedBackup);
-            document.getElementById('restoreBtn').addEventListener('click', () => {
-                document.getElementById('restoreFileInput').click();
-            });
-            document.getElementById('restoreFileInput').addEventListener('change', (e) => restoreBackup(e.target));
         }
 
         async function handleLogin(e) {
@@ -1070,10 +959,6 @@
                     localStorage.setItem('diary_token', authToken);
                     showApp();
                     loadDiaryList();
-                    // 检查是否未改密码
-                    if (!data.password_changed) {
-                        document.getElementById('passwordWarning').classList.add('show');
-                    }
                 } else {
                     error.textContent = data.error;
                     error.style.display = 'block';
@@ -1137,22 +1022,21 @@
             clearInterval(idleTimer);
         }
 
-        // ─── 空闲检测（修复：用 setTimeout 实现真正超时）──
+        // ─── 空闲检测 ──────────────────────────────────
         function resetIdleTimer() {
-            clearTimeout(idleTimer);
-            idleTimer = setTimeout(() => {
-                lockScreen();
-            }, sessionTimeout * 1000);
+            clearInterval(idleTimer);
+            idleTimer = setInterval(() => {
+                // 如果页面不可见则锁定
+                if (document.hidden) {
+                    lockScreen();
+                }
+            }, Math.min(sessionTimeout * 1000, 60000));  // 最多每分钟检查一次
 
-            // 用户活动时重置计时器
-            const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
-            events.forEach(evt => {
-                document.addEventListener(evt, () => {
-                    clearTimeout(idleTimer);
-                    idleTimer = setTimeout(() => {
-                        lockScreen();
-                    }, sessionTimeout * 1000);
-                }, { once: true });
+            // 页面可见性变化
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden && !authToken) {
+                    lockScreen();
+                }
             });
         }
 
@@ -1171,6 +1055,7 @@
             try {
                 const res = await fetch(url, { ...options, headers });
 
+                // 会话过期 → 锁定
                 if (res.headers.get('X-Session-Expired') === 'true' || res.status === 401) {
                     localStorage.removeItem('diary_token');
                     authToken = '';
@@ -1204,14 +1089,18 @@
             document.getElementById(viewName + 'View').classList.add('active');
             
             // 高亮桌面导航
-            document.querySelectorAll('.nav-link').forEach(l => {
-                if (l.dataset.view === viewName) l.classList.add('active');
-            });
+            const desktopLinks = document.querySelectorAll('.nav-link');
+            const viewIndex = ['list', 'calendar', 'editor', 'stats', 'audit', 'settings'].indexOf(viewName);
+            if (viewIndex >= 0 && desktopLinks[viewIndex]) {
+                desktopLinks[viewIndex].classList.add('active');
+            }
             
             // 高亮移动导航
-            document.querySelectorAll('.mobile-nav-item').forEach(l => {
-                if (l.dataset.view === viewName) l.classList.add('active');
-            });
+            const mobileLinks = document.querySelectorAll('.mobile-nav-item');
+            const mobileIndex = ['list', 'calendar', 'editor', 'stats', 'settings'].indexOf(viewName);
+            if (mobileIndex >= 0 && mobileLinks[mobileIndex]) {
+                mobileLinks[mobileIndex].classList.add('active');
+            }
 
             if (viewName === 'list') loadDiaryList();
             if (viewName === 'calendar') loadCalendar();
@@ -1233,13 +1122,18 @@
 
             const data = await res.json();
 
+            // 更新加密状态
+            if (data.entries.length > 0) {
+                // 检查加密状态
+            }
+
             if (data.entries.length === 0) {
                 list.innerHTML = '<div class="loading">还没有日记，点击"写日记"开始记录吧！</div>';
                 return;
             }
 
             list.innerHTML = data.entries.map(entry => `
-                <div class="diary-item" data-date="${entry.date}">
+                <div class="diary-item" onclick="openDiary('${entry.date}')">
                     <div class="date">${formatDate(entry.date)}</div>
                     <div class="preview">${escapeHtml(entry.preview)}</div>
                     <div class="tags">
@@ -1247,16 +1141,12 @@
                     </div>
                 </div>
             `).join('');
-
-            // 绑定点击事件
-            list.querySelectorAll('.diary-item').forEach(el => {
-                el.addEventListener('click', () => openDiary(el.dataset.date));
-            });
         }
 
         // ─── 打开日记 ──────────────────────────────────
         async function openDiary(date) {
             showView('editor');
+            document.querySelectorAll('.nav-link')[2].classList.add('active');
             document.getElementById('editorDate').value = date;
 
             const res = await apiFetch(`/api/diaries/${date}`);
@@ -1310,35 +1200,25 @@
             }
         }
 
-        // ─── Markdown 预览（使用 marked.js）────────────
+        // ─── Markdown 预览 ─────────────────────────────
         function previewMarkdown() {
             const content = document.getElementById('editorContent').value;
             const preview = document.getElementById('previewPane');
 
-            if (!content.trim()) {
-                preview.innerHTML = '<p style="color: #999;">Markdown 预览将在这里显示...</p>';
-                return;
-            }
+            let html = escapeHtml(content);
+            html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+            html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+            html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            html = html.replace(/`(.+?)`/g, '<code>$1</code>');
+            html = html.replace(/\n```([\s\S]+?)```/g, '<pre><code>$1</code></pre>');
+            html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+            html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+            html = html.replace(/\n\n/g, '</p><p>');
+            html = '<p>' + html + '</p>';
 
-            if (typeof marked !== 'undefined') {
-                // 使用 marked.js 渲染
-                preview.innerHTML = marked.parse(content);
-            } else {
-                // 降级：基础正则替换
-                let html = escapeHtml(content);
-                html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-                html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-                html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-                html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-                html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-                html = html.replace(/`(.+?)`/g, '<code>$1</code>');
-                html = html.replace(/```([\s\S]+?)```/g, '<pre><code>$1</code></pre>');
-                html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-                html = html.replace(/(<li>[\s\S]*<\/li>)/g, '<ul>$1</ul>');
-                html = html.replace(/\n\n/g, '</p><p>');
-                html = '<p>' + html + '</p>';
-                preview.innerHTML = html;
-            }
+            preview.innerHTML = html;
         }
 
         // ─── 日历 ──────────────────────────────────────
@@ -1366,15 +1246,11 @@
             for (let d = 1; d <= daysInMonth; d++) {
                 const isToday = today.getFullYear() === currentYear && today.getMonth() + 1 === currentMonth && today.getDate() === d;
                 const hasEntry = diaryDates.has(d);
-                html += `<div class="calendar-day ${isToday ? 'today' : ''} ${hasEntry ? 'has-entry' : ''}" data-date="${currentYear}-${String(currentMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}">${d}</div>`;
+                html += `<div class="calendar-day ${isToday ? 'today' : ''} ${hasEntry ? 'has-entry' : ''}" 
+                         onclick="openDiary('${currentYear}-${String(currentMonth).padStart(2,'0')}-${String(d).padStart(2,'0')}')">${d}</div>`;
             }
 
             grid.innerHTML = html;
-
-            // 绑定点击事件
-            grid.querySelectorAll('.calendar-day[data-date]').forEach(el => {
-                el.addEventListener('click', () => openDiary(el.dataset.date));
-            });
         }
 
         function changeMonth(delta) {
@@ -1418,14 +1294,9 @@
                 tagsContainer.innerHTML = '<p style="color: #999;">还没有标签</p>';
             } else {
                 tagsContainer.innerHTML = Object.entries(stats.tags)
-                    .map(([tag, count]) => `<span class="tag-item" data-tag="${escapeHtml(tag)}">#${escapeHtml(tag)} (${count})</span>`)
+                    .map(([tag, count]) => `<span class="tag-item" onclick="searchByTag('${escapeHtml(tag)}')">#${escapeHtml(tag)} (${count})</span>`)
                     .join('');
             }
-
-            // 绑定标签点击
-            tagsContainer.querySelectorAll('.tag-item').forEach(el => {
-                el.addEventListener('click', () => searchByTag(el.dataset.tag));
-            });
         }
 
         // ─── 搜索 ──────────────────────────────────────
@@ -1434,6 +1305,7 @@
             if (!query) return;
 
             showView('list');
+            document.querySelectorAll('.nav-link')[0].classList.add('active');
 
             const res = await apiFetch(`/api/search?q=${encodeURIComponent(query)}`);
             if (!res) return;
@@ -1446,7 +1318,7 @@
             }
 
             list.innerHTML = data.results.map(entry => `
-                <div class="diary-item" data-date="${entry.date}">
+                <div class="diary-item" onclick="openDiary('${entry.date}')">
                     <div class="date">${formatDate(entry.date)}</div>
                     <div class="preview">...${escapeHtml(entry.preview)}...</div>
                     <div class="tags">
@@ -1454,10 +1326,6 @@
                     </div>
                 </div>
             `).join('');
-
-            list.querySelectorAll('.diary-item').forEach(el => {
-                el.addEventListener('click', () => openDiary(el.dataset.date));
-            });
         }
 
         function searchByTag(tag) {
@@ -1559,7 +1427,6 @@
                 document.getElementById('oldPassword').value = '';
                 document.getElementById('newPassword').value = '';
                 document.getElementById('confirmPassword').value = '';
-                dismissPasswordWarning();
             }
         }
 
@@ -1587,8 +1454,9 @@
         }
 
         async function downloadDecryptedBackup() {
+            // 弹出密码输入框
             const password = prompt('🔐 下载明文备份需要验证身份\n\n请输入你的登录密码：');
-            if (!password) return;
+            if (!password) return; // 用户取消
 
             showToast('正在生成明文备份...', 'warning');
             
@@ -1653,6 +1521,7 @@
                     progress.innerHTML = `<pre style="white-space: pre-wrap; font-size: 0.9rem;">${msg}</pre>`;
                     showToast(`成功恢复 ${data.restored} 篇日记`);
                     
+                    // 刷新列表
                     loadDiaryList();
                 } else {
                     progress.innerHTML = `❌ 恢复失败: ${data.error || '未知错误'}`;
@@ -1663,6 +1532,7 @@
                 showToast('恢复失败', 'error');
             }
 
+            // 清空 input 以便下次使用
             input.value = '';
         }
 
@@ -1697,27 +1567,10 @@
         // ─── 自动保存草稿 ──────────────────────────────
         function setupAutoSave() {
             const textarea = document.getElementById('editorContent');
-            const dateInput = document.getElementById('editorDate');
-
-            // 加载草稿
-            function loadDraft() {
-                const date = dateInput.value;
-                if (date) {
-                    const draft = localStorage.getItem(`draft_${date}`);
-                    if (draft && !textarea.value) {
-                        textarea.value = draft;
-                        previewMarkdown();
-                        showToast('📝 已恢复上次草稿');
-                    }
-                }
-            }
-
-            dateInput.addEventListener('change', loadDraft);
-
             textarea.addEventListener('input', () => {
                 clearTimeout(autoSaveTimer);
                 autoSaveTimer = setTimeout(() => {
-                    const date = dateInput.value;
+                    const date = document.getElementById('editorDate').value;
                     const content = textarea.value;
                     if (date && content) {
                         localStorage.setItem(`draft_${date}`, content);
@@ -1726,23 +1579,26 @@
                         indicator.className = 'autosave-indicator saved';
                         setTimeout(() => { indicator.textContent = ''; }, 2000);
                     }
-                }, 3000);
+                }, 3000);  // 3秒自动保存草稿到 localStorage
             });
-
-            // 初始加载草稿
-            setTimeout(loadDraft, 500);
         }
 
         // ─── 初始化 ────────────────────────────────────
         document.addEventListener('DOMContentLoaded', async () => {
-            bindEvents();
             setupAutoSave();
 
+            // 检查登录状态
             await checkAuth();
 
+            // 如果已登录，加载列表
             if (authToken) {
                 loadDiaryList();
             }
+
+            // 实时预览
+            document.getElementById('editorContent').addEventListener('input', () => {
+                previewMarkdown();
+            });
         });
     </script>
 </body>
