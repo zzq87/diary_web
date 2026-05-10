@@ -87,3 +87,7 @@
 [2026-05-10T21:22:19.287753] user=system action=SYSTEM_START detail=server started ip=
 [2026-05-10T21:22:20.960475] user=admin action=VIEW_STATS detail= ip=192.168.31.222
 [2026-05-10T21:22:25.236856] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=192.168.31.222
+[2026-05-10T21:24:24.957731] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T21:26:30.407188] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T21:28:35.984098] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T21:30:41.422384] user=system action=SYSTEM_START detail=server started ip=

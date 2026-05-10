@@ -1,0 +1,23 @@
+# 加密密钥（重要！丢失后无法解密）
+config/master.key
+
+# 运行时数据
+config/sessions.json
+config/rate_limits.json
+config/audit.log
+config/users.json
+
+# 日记数据
+data/
+
+# Python 虚拟环境
+.venv/
+__pycache__/
+*.pyc
+
+# OS 文件
+.DS_Store
+
+# 备份文件
+*.zip
+*.bak
