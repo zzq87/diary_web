@@ -1,0 +1,52 @@
+[2026-05-10T15:31:00.247621] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T15:31:13.115931] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T15:31:24.107541] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T15:31:24.308760] user=admin action=SAVE_DIARY detail=date=2026-05-10 size=40 ip=127.0.0.1
+[2026-05-10T15:31:24.326832] user=admin action=VIEW_DIARY detail=date=2026-05-10 ip=127.0.0.1
+[2026-05-10T15:31:24.398916] user=admin action=VIEW_AUDIT detail=limit=50 ip=127.0.0.1
+[2026-05-10T15:35:10.705119] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T15:35:10.713977] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=127.0.0.1
+[2026-05-10T15:35:29.613296] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T15:35:50.199039] user=admin action=VIEW_AUDIT detail=limit=100 ip=127.0.0.1
+[2026-05-10T15:35:59.446955] user=admin action=VIEW_STATS detail= ip=127.0.0.1
+[2026-05-10T15:36:05.531478] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=127.0.0.1
+[2026-05-10T15:40:04.342343] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T15:40:06.182950] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=127.0.0.1
+[2026-05-10T15:40:09.880037] user=admin action=VIEW_STATS detail= ip=127.0.0.1
+[2026-05-10T15:40:10.850983] user=admin action=VIEW_AUDIT detail=limit=100 ip=127.0.0.1
+[2026-05-10T15:40:22.618051] user=admin action=SAVE_DIARY detail=date=2026-05-10 size=4 ip=127.0.0.1
+[2026-05-10T15:40:34.299851] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=127.0.0.1
+[2026-05-10T15:41:01.586278] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T15:41:46.292426] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T15:42:57.491120] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T15:42:57.504445] user=admin action=BACKUP_CREATED detail= ip=127.0.0.1
+[2026-05-10T15:43:14.151667] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T15:43:14.198043] user=admin action=SAVE_DIARY detail=date=2026-05-10 size=25 ip=127.0.0.1
+[2026-05-10T15:43:14.207041] user=admin action=SAVE_DIARY detail=date=2026-05-11 size=25 ip=127.0.0.1
+[2026-05-10T15:43:14.215418] user=admin action=SAVE_DIARY detail=date=2026-05-12 size=25 ip=127.0.0.1
+[2026-05-10T15:43:14.224312] user=admin action=BACKUP_CREATED detail= ip=127.0.0.1
+[2026-05-10T15:43:42.564703] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=127.0.0.1
+[2026-05-10T15:43:47.508141] user=admin action=SAVE_DIARY detail=date=2026-05-10 size=6 ip=127.0.0.1
+[2026-05-10T15:43:51.068116] user=admin action=BACKUP_CREATED detail= ip=127.0.0.1
+[2026-05-10T15:47:02.780091] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T15:47:28.283887] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T15:47:28.315264] user=admin action=SAVE_DIARY detail=date=2026-05-10 size=24 ip=127.0.0.1
+[2026-05-10T15:47:28.324256] user=admin action=SAVE_DIARY detail=date=2026-05-11 size=24 ip=127.0.0.1
+[2026-05-10T15:47:28.333016] user=admin action=SAVE_DIARY detail=date=2026-05-12 size=24 ip=127.0.0.1
+[2026-05-10T15:47:28.342665] user=admin action=BACKUP_CREATED detail= ip=127.0.0.1
+[2026-05-10T15:47:37.190601] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T15:47:39.715733] user=admin action=LIST_DIARIES detail=limit=50 offset=0 ip=127.0.0.1
+[2026-05-10T15:47:43.889278] user=admin action=SAVE_DIARY detail=date=2026-05-10 size=5 ip=127.0.0.1
+[2026-05-10T15:49:33.056391] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T15:49:51.093453] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T15:49:51.114596] user=admin action=SAVE_DIARY detail=date=2026-05-10 size=24 ip=127.0.0.1
+[2026-05-10T15:49:51.123721] user=admin action=SAVE_DIARY detail=date=2026-05-11 size=24 ip=127.0.0.1
+[2026-05-10T15:49:51.132846] user=admin action=SAVE_DIARY detail=date=2026-05-12 size=24 ip=127.0.0.1
+[2026-05-10T15:49:51.142034] user=admin action=BACKUP_CREATED detail= ip=127.0.0.1
+[2026-05-10T15:49:51.155677] user=admin action=BACKUP_RESTORED detail=restored=3 skipped=0 ip=127.0.0.1
+[2026-05-10T15:50:12.559015] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T15:50:12.572494] user=admin action=DECRYPTED_BACKUP detail= ip=127.0.0.1
+[2026-05-10T15:52:27.926988] user=system action=SYSTEM_START detail=server started ip=
+[2026-05-10T15:52:48.672669] user=admin action=LOGIN_SUCCESS detail= ip=127.0.0.1
+[2026-05-10T15:52:48.753335] user=admin action=DECRYPT_BACKUP_AUTH_FAIL detail= ip=127.0.0.1
+[2026-05-10T15:52:48.842106] user=admin action=DECRYPTED_BACKUP detail= ip=127.0.0.1
