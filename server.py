@@ -22,7 +22,6 @@ import glob
 import time
 import secrets
 import hashlib
-import struct
 import hmac
 import base64
 import logging
@@ -34,9 +33,7 @@ from functools import wraps
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
-from pydantic import BaseModel
 
 # ─── 配置 ───────────────────────────────────────────────
 DIARY_DIR = Path(os.environ.get("DIARY_DIR", Path(__file__).parent / "data"))
@@ -117,32 +114,20 @@ def _simple_decrypt(ciphertext_b64: str, key: bytes) -> bytes:
     return bytes(result)
 
 
-def decrypt_data(ciphertext_b64: str, key: bytes) -> bytes:
-    """解密数据：优先 AES-256-GCM，失败则回退 XOR（兼容旧文件）"""
-    try:
-        raw = base64.b64decode(ciphertext_b64)
-        nonce, ciphertext = raw[:12], raw[12:]
-        aesgcm = AESGCM(key)
-        return aesgcm.decrypt(nonce, ciphertext, None)
-    except Exception:
-        # AES-GCM 失败 → 可能是旧 XOR 加密文件，回退解密
-        return _simple_decrypt(ciphertext_b64, key)
-
-
-def is_xor_encrypted(ciphertext_b64: str, key: bytes) -> bool:
-    """检查是否为旧 XOR 加密（用于标记需要迁移的文件）"""
+def decrypt_data(ciphertext_b64: str, key: bytes) -> tuple[bytes, bool]:
+    """解密数据：优先 AES-256-GCM，失败则回退 XOR（兼容旧文件）
+    返回 (明文, 是否XOR加密) 元组"""
     try:
         raw = base64.b64decode(ciphertext_b64)
         # AES-GCM 密文至少 12 (nonce) + 16 (tag) = 28 字节
         if len(raw) < 28:
-            return True
-        # 尝试 AES-GCM 解密，失败则是 XOR
+            raise ValueError("密文过短，不是 AES-GCM")
         nonce, ciphertext = raw[:12], raw[12:]
         aesgcm = AESGCM(key)
-        aesgcm.decrypt(nonce, ciphertext, None)
-        return False
+        return aesgcm.decrypt(nonce, ciphertext, None), False
     except Exception:
-        return True
+        # AES-GCM 失败 → 回退 XOR 解密（旧文件格式）
+        return _simple_decrypt(ciphertext_b64, key), True
 
 
 # ─── 密码管理 ──────────────────────────────────────────
@@ -168,11 +153,16 @@ def verify_password(password: str, hashed: str) -> bool:
 DEFAULT_PASSWORD = "admin123"
 
 def load_users() -> dict:
+    """加载用户数据，首次启动时持久化默认 admin"""
     lock = _get_lock("users")
     with lock:
         if USERS_FILE.exists():
             return json.loads(USERS_FILE.read_text())
-        return {"admin": {"password_hash": hash_password(DEFAULT_PASSWORD), "created": datetime.now().isoformat(), "password_changed": False}}
+        # 首次启动，创建默认用户并持久化
+        default_users = {"admin": {"password_hash": hash_password(DEFAULT_PASSWORD), "created": datetime.now().isoformat(), "password_changed": False}}
+        USERS_FILE.write_text(json.dumps(default_users, ensure_ascii=False, indent=2))
+        USERS_FILE.chmod(0o600)
+        return default_users
 
 
 def save_users(users: dict):
@@ -270,6 +260,15 @@ _rate_limit_lock = threading.Lock()
 _rate_limit_flush_interval = 10  # 每10秒刷盘一次
 _rate_limit_last_flush = 0
 
+def _load_rate_limits():
+    """启动时从磁盘加载速率限制"""
+    global _rate_limit_mem
+    try:
+        if RATE_LIMIT_FILE.exists():
+            _rate_limit_mem = json.loads(RATE_LIMIT_FILE.read_text())
+    except Exception:
+        _rate_limit_mem = {}
+
 def _flush_rate_limits():
     """将内存中的速率限制写入磁盘"""
     global _rate_limit_last_flush
@@ -278,9 +277,7 @@ def _flush_rate_limits():
         return
     _rate_limit_last_flush = now
     try:
-        lock = _get_lock("rate_limits")
-        with lock:
-            RATE_LIMIT_FILE.write_text(json.dumps(_rate_limit_mem))
+        RATE_LIMIT_FILE.write_text(json.dumps(_rate_limit_mem))
     except Exception:
         pass
 
@@ -339,31 +336,19 @@ def _sanitize_log_field(value: str) -> str:
     return value.replace("\n", " ").replace("\r", " ").replace("\t", " ")
 
 
+_audit_lock = threading.Lock()
+
 def audit_log(action: str, username: str, detail: str = "", ip: str = ""):
-    """记录审计日志"""
+    """记录审计日志（带文件锁防并发写入冲突）"""
     timestamp = datetime.now().isoformat()
     username = _sanitize_log_field(username)
     detail = _sanitize_log_field(detail)
     ip = _sanitize_log_field(ip)
     log_entry = f"[{timestamp}] user={username} action={action} detail={detail} ip={ip}\n"
-    with open(AUDIT_FILE, "a", encoding="utf-8") as f:
-        f.write(log_entry)
+    with _audit_lock:
+        with open(AUDIT_FILE, "a", encoding="utf-8") as f:
+            f.write(log_entry)
 
-
-# ─── Pydantic 请求模型 ─────────────────────────────────
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-class ChangePasswordRequest(BaseModel):
-    old_password: str
-    new_password: str
-
-class DiarySaveRequest(BaseModel):
-    content: str
-
-class DecryptBackupRequest(BaseModel):
-    password: str
 
 # ─── 安全中间件 ────────────────────────────────────────
 @asynccontextmanager
@@ -383,6 +368,9 @@ async def lifespan(app: FastAPI):
     logger.info(f"日记目录: {DIARY_DIR}")
     logger.info(f"加密存储: {'开启' if ENCRYPTION_ENABLED else '关闭'}")
     logger.info(f"会话超时: {SESSION_TIMEOUT}秒")
+
+    # 加载速率限制（防止重启后计数器归零）
+    _load_rate_limits()
 
     audit_log("SYSTEM_START", "system", "server started", "")
 
@@ -625,17 +613,16 @@ def read_diary_file(path: Path) -> str:
         key = get_or_create_master_key()
         encrypted = raw_content[4:]
 
-        # 检测是否为旧 XOR 加密，如果是则读取后重新加密为 AES-GCM
-        needs_migration = is_xor_encrypted(encrypted, key)
-        content = decrypt_data(encrypted, key).decode("utf-8")
+        content, is_xor = decrypt_data(encrypted, key)
+        content_str = content.decode("utf-8")
 
-        if needs_migration:
+        if is_xor:
             # 自动迁移：用 AES-GCM 重新写入
-            new_encrypted = encrypt_data(content.encode("utf-8"), key)
+            new_encrypted = encrypt_data(content, key)
             path.write_text(f"ENC:{new_encrypted}", encoding="utf-8")
             logger.info(f"自动迁移旧加密文件: {path}")
 
-        return content
+        return content_str
 
     return raw_content
 
@@ -706,6 +693,27 @@ def sanitize_input(text: str, max_length: int = 10000) -> str:
 # ─── Stats 缓存 ────────────────────────────────────────
 _stats_cache = {"value": None, "computed_at": 0, "ttl": 60}  # 1分钟缓存
 
+# ─── 日记文件列表缓存 ─────────────────────────────────
+_diary_files_cache = {"files": None, "computed_at": 0, "ttl": 30}  # 30秒缓存
+
+def _get_diary_files() -> list[str]:
+    """获取日记文件列表（带缓存）"""
+    now = time.time()
+    if _diary_files_cache["files"] is not None and now - _diary_files_cache["computed_at"] < _diary_files_cache["ttl"]:
+        return _diary_files_cache["files"]
+    pattern = str(DIARY_DIR) + "/*/*/*.md"
+    files = sorted(glob.glob(pattern), reverse=True)
+    _diary_files_cache["files"] = files
+    _diary_files_cache["computed_at"] = now
+    return files
+
+def _invalidate_diary_files_cache():
+    """使文件列表缓存失效"""
+    _diary_files_cache["computed_at"] = 0
+    _diary_files_cache["files"] = None
+    # 同时使 stats 缓存失效
+    _stats_cache["computed_at"] = 0
+
 @app.get("/api/diaries")
 @require_auth
 async def list_diaries(request: Request, limit: int = 30, offset: int = 0):
@@ -716,8 +724,7 @@ async def list_diaries(request: Request, limit: int = 30, offset: int = 0):
     offset = max(offset, 0)
 
     entries = []
-    pattern = str(DIARY_DIR) + "/*/*/*.md"
-    files = sorted(glob.glob(pattern), reverse=True)
+    files = _get_diary_files()
 
     for filepath in files[offset:offset + limit]:
         path = Path(filepath)
@@ -745,9 +752,6 @@ async def list_diaries(request: Request, limit: int = 30, offset: int = 0):
             })
         except Exception as e:
             logger.error(f"读取日记失败 {full_date}: {e}")
-
-    # 清除 stats 缓存（列表变化了）
-    _stats_cache["computed_at"] = 0
 
     audit_log("LIST_DIARIES", username, f"limit={limit} offset={offset}", request.client.host)
 
@@ -801,7 +805,7 @@ async def save_diary(request: Request, date: str):
 
     # 清除缓存
     _streak_cache["computed_at"] = 0
-    _stats_cache["computed_at"] = 0
+    _invalidate_diary_files_cache()
 
     audit_log("SAVE_DIARY", username, f"date={date} size={len(content)}", request.client.host)
 
@@ -826,7 +830,7 @@ async def delete_diary(request: Request, date: str):
 
     # 清除缓存
     _streak_cache["computed_at"] = 0
-    _stats_cache["computed_at"] = 0
+    _invalidate_diary_files_cache()
 
     audit_log("DELETE_DIARY", username, f"date={date}", request.client.host)
 
@@ -846,9 +850,7 @@ async def search_diaries(request: Request, q: str):
     query_lower = q.lower()
 
     results = []
-    pattern = str(DIARY_DIR) + "/*/*/*.md"
-
-    for filepath in glob.glob(pattern):
+    for filepath in _get_diary_files():
         path = Path(filepath)
         try:
             # 先读原始内容，快速过滤
@@ -912,8 +914,7 @@ async def get_stats(request: Request):
     last_date = None
     all_tags = {}
 
-    pattern = str(DIARY_DIR) + "/*/*/*.md"
-    files = sorted(glob.glob(pattern))
+    files = sorted(_get_diary_files())  # _get_diary_files 返回 reverse=True，这里反转
 
     for filepath in files:
         path = Path(filepath)
@@ -1103,7 +1104,7 @@ async def restore_backup(request: Request):
 
     # 清除缓存
     _streak_cache["computed_at"] = 0
-    _stats_cache["computed_at"] = 0
+    _invalidate_diary_files_cache()
 
     audit_log("BACKUP_RESTORED", username, f"restored={restored} skipped={skipped}", request.client.host)
 

@@ -988,6 +988,17 @@
             document.getElementById('passwordWarning').classList.remove('show');
         }
 
+        // ─── marked.js 加载检测（3秒超时降级）──────────
+        let markedReady = false;
+        setTimeout(() => {
+            if (typeof marked === 'undefined') {
+                console.warn('marked.js 加载失败，使用降级渲染');
+                window.markedFallback = true;
+            } else {
+                markedReady = true;
+            }
+        }, 3000);
+
         // ─── 事件绑定（替代 onclick 内联）──────────────
         function bindEvents() {
             // 登录表单
@@ -1320,7 +1331,7 @@
                 return;
             }
 
-            if (typeof marked !== 'undefined') {
+            if (markedReady) {
                 // 使用 marked.js 渲染
                 preview.innerHTML = marked.parse(content);
             } else {
