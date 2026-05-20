@@ -12,42 +12,40 @@ import argparse
 import json
 import sys
 import zipfile
+import os
 from pathlib import Path
-import hashlib
 import base64
+from typing import Optional
+
 
 # ─── 加密模块（与 server.py 相同） ──────────────────
 def decrypt_data(ciphertext_b64: str, key: bytes) -> bytes:
-    try:
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        raw = base64.b64decode(ciphertext_b64)
-        nonce, ciphertext = raw[:12], raw[12:]
-        aesgcm = AESGCM(key)
-        return aesgcm.decrypt(nonce, ciphertext, None)
-    except ImportError:
-        return _simple_decrypt(ciphertext_b64, key)
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    raw = base64.b64decode(ciphertext_b64)
+    if len(raw) < 28:
+        raise ValueError("密文过短，不是 AES-GCM 格式")
+    nonce, ciphertext = raw[:12], raw[12:]
+    aesgcm = AESGCM(key)
+    return aesgcm.decrypt(nonce, ciphertext, None)
 
 
-def _simple_decrypt(ciphertext_b64: str, key: bytes) -> bytes:
-    data = base64.b64decode(ciphertext_b64)
-    result = bytearray()
-    for i, b in enumerate(data):
-        result.append(b ^ key[i % len(key)])
-    return bytes(result)
-
-
-def find_master_key() -> bytes:
+def find_master_key() -> Optional[bytes]:
     """查找 master.key 文件"""
     candidates = [
         Path(__file__).parent / "config" / "master.key",
-        Path(__file__).parent / ".hermes" / "diary_web" / "config" / "master.key",
-        Path.home() / ".hermes" / "diary_web" / "config" / "master.key",
+        Path.home() / ".diary_web" / "config" / "master.key",
     ]
-    
+
+    # 支持环境变量指定
+    env_key = os.environ.get("DIARY_MASTER_KEY")
+    if env_key:
+        candidates.insert(0, Path(env_key))
+
     for path in candidates:
         if path.exists():
             return path.read_bytes()
-    
+
     return None
 
 
@@ -58,7 +56,7 @@ def list_backup(zip_path: str):
     except zipfile.BadZipFile:
         print("❌ 无效的 ZIP 文件")
         sys.exit(1)
-    
+
     # 读取元数据
     if "metadata.json" in zf.namelist():
         metadata = json.loads(zf.read("metadata.json"))
@@ -67,38 +65,38 @@ def list_backup(zip_path: str):
         print(f"   创建者:   {metadata.get('created_by', '未知')}")
         print(f"   日记数:   {metadata.get('total_entries', 0)}")
         print(f"   已加密:   {'是' if metadata.get('encrypted') else '否'}")
-        if metadata.get('decrypted'):
+        if metadata.get("decrypted"):
             print(f"   ⚠️  明文备份，请妥善保管!")
         print()
-    
+
     # 列出文件
-    md_files = [n for n in zf.namelist() if n.endswith('.md')]
+    md_files = [n for n in zf.namelist() if n.endswith(".md")]
     print(f"📄 日记文件 ({len(md_files)} 篇):")
     for name in sorted(md_files):
         size = zf.getinfo(name).file_size
         print(f"   {name} ({size} bytes)")
-    
+
     zf.close()
 
 
-def decrypt_backup(zip_path: str, output_dir: str = None, raw: bool = False):
+def decrypt_backup(zip_path: str, output_dir: Optional[str] = None, raw: bool = False):
     """解密备份"""
     try:
         zf = zipfile.ZipFile(zip_path)
     except zipfile.BadZipFile:
         print("❌ 无效的 ZIP 文件")
         sys.exit(1)
-    
+
     # 读取元数据
     if "metadata.json" in zf.namelist():
         metadata = json.loads(zf.read("metadata.json"))
-        if metadata.get('decrypted'):
+        if metadata.get("decrypted"):
             print("ℹ️  此备份已是明文，无需解密")
             raw = True
-        elif not metadata.get('encrypted'):
+        elif not metadata.get("encrypted"):
             print("ℹ️  此备份未加密，直接解压")
             raw = True
-    
+
     if not raw:
         # 需要解密
         master_key = find_master_key()
@@ -107,23 +105,25 @@ def decrypt_backup(zip_path: str, output_dir: str = None, raw: bool = False):
             print("请将此工具放在 diary_web 目录下，或设置 --key 参数")
             sys.exit(1)
         print(f"🔑 已找到加密密钥 ({len(master_key)} bytes)")
-    
+    else:
+        master_key = None
+
     output = Path(output_dir) if output_dir else Path.cwd()
     output.mkdir(parents=True, exist_ok=True)
-    
-    md_files = [n for n in zf.namelist() if n.endswith('.md')]
+
+    md_files = [n for n in zf.namelist() if n.endswith(".md")]
     restored = 0
     failed = 0
-    
+
     for name in md_files:
         try:
             content = zf.read(name).decode("utf-8")
-            
-            if not raw and content.startswith("ENC:"):
+
+            if not raw and master_key and content.startswith("ENC:"):
                 # 解密
                 decrypted = decrypt_data(content[4:], master_key)
                 content = decrypted.decode("utf-8")
-            
+
             # 写入文件
             dest_path = output / name
             dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -132,9 +132,9 @@ def decrypt_backup(zip_path: str, output_dir: str = None, raw: bool = False):
         except Exception as e:
             print(f"   ❌ 失败: {name} - {e}")
             failed += 1
-    
+
     zf.close()
-    
+
     print(f"\n✅ 解密完成!")
     print(f"   成功: {restored} 篇")
     if failed:
@@ -149,9 +149,9 @@ if __name__ == "__main__":
     parser.add_argument("-l", "--list", action="store_true", help="列出备份内容")
     parser.add_argument("--raw", action="store_true", help="不解密，直接解压")
     parser.add_argument("--key", help="指定 master.key 路径")
-    
+
     args = parser.parse_args()
-    
+
     if args.list:
         list_backup(args.backup)
     else:

@@ -556,7 +556,7 @@
         /* 响应式 - 平板 */
         @media (max-width: 1024px) {
             .editor-body { grid-template-columns: 1fr; }
-            .preview-pane { border-left: none; border-top: 1px solid var(--border); max-height: 300px; }
+            .preview-pane { border-left: none; border-top: 1px solid var(--border); }
         }
 
         /* 响应式 - 移动端 */
@@ -584,10 +584,22 @@
             .diary-item { padding: 1rem; }
             .diary-item .preview { white-space: normal; -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical; }
             
-            /* 编辑器优化 */
+            /* 编辑器优化 - 移动端默认隐藏预览，点击按钮切换 */
             .editor-header { flex-direction: column; gap: 0.5rem; align-items: stretch; }
             .editor-actions { justify-content: space-between; flex-wrap: wrap; }
             .btn { padding: 0.6rem 0.8rem; font-size: 0.85rem; }
+            
+            /* 预览区域默认隐藏，固定高度防抖动 */
+            .preview-pane {
+                display: none;
+                max-height: 40vh;
+                min-height: 200px;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            .preview-pane.show {
+                display: block;
+            }
             
             /* 日历滚动 */
             .calendar { padding: 1rem; overflow-x: auto; }
@@ -710,9 +722,9 @@
     <div id="appContainer" style="display: none;">
         <!-- 密码修改提示 -->
         <div class="password-warning" id="passwordWarning">
-            <span class="close-btn" onclick="dismissPasswordWarning()">&times;</span>
+            <span class="close-btn" id="dismissPasswordWarningBtn">&times;</span>
             <p>⚠️ <strong>首次登录提示</strong>：你还在使用默认密码，请尽快修改！</p>
-            <button class="btn btn-primary" onclick="showView('settings'); document.getElementById('oldPassword').focus();">立即修改密码</button>
+            <button class="btn btn-primary" id="goToSettingsBtn">立即修改密码</button>
         </div>
 
         <!-- 导航栏 -->
@@ -931,17 +943,27 @@
 
     <script>
         // 全局状态
-        let authToken = localStorage.getItem('diary_token') || '';
+        let authToken = '';
         let currentUser = '';
         let sessionTimeout = 3600;
         let idleTimer = null;
         let autoSaveTimer = null;
+        let searchDebounceTimer = null;
+        let idleEventHandlers = [];
         let currentYear = new Date().getFullYear();
         let currentMonth = new Date().getMonth() + 1;
         let diaryDates = new Set();
 
+        // 优先从 cookie 获取 token（httpOnly，更安全）
+        function getCookie(name) {
+            const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+            return match ? match[2] : '';
+        }
+
         // ─── 认证 ──────────────────────────────────────
         async function checkAuth() {
+            // 优先使用 cookie（httpOnly），其次 localStorage 作为回退
+            authToken = getCookie('diary_token') || localStorage.getItem('diary_token') || '';
             if (!authToken) {
                 showLoginPage();
                 return;
@@ -949,13 +971,12 @@
 
             try {
                 const res = await fetch('/api/auth/status', {
-                    headers: { 'X-Auth-Token': authToken }
+                    credentials: 'include'
                 });
                 const data = await res.json();
 
                 if (data.authenticated) {
                     currentUser = data.username;
-                    // 检查是否未改过密码
                     if (!data.password_changed) {
                         document.getElementById('passwordWarning').classList.add('show');
                     }
@@ -1004,6 +1025,13 @@
             // 登录表单
             document.getElementById('loginForm').addEventListener('submit', handleLogin);
 
+            // 密码警告提示
+            document.getElementById('dismissPasswordWarningBtn').addEventListener('click', dismissPasswordWarning);
+            document.getElementById('goToSettingsBtn').addEventListener('click', () => {
+                showView('settings');
+                document.getElementById('oldPassword').focus();
+            });
+
             // 锁屏
             document.getElementById('lockBtn').addEventListener('click', lockScreen);
             document.getElementById('unlockBtn').addEventListener('click', handleUnlock);
@@ -1018,9 +1046,19 @@
             // 登出
             document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
-            // 搜索
+            // 搜索（带防抖）
+            document.getElementById('searchInput').addEventListener('input', () => {
+                clearTimeout(searchDebounceTimer);
+                searchDebounceTimer = setTimeout(() => {
+                    const query = document.getElementById('searchInput').value.trim();
+                    if (query.length >= 2) searchDiaries();
+                }, 500);
+            });
             document.getElementById('searchInput').addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') searchDiaries();
+                if (e.key === 'Enter') {
+                    clearTimeout(searchDebounceTimer);
+                    searchDiaries();
+                }
             });
 
             // 导航
@@ -1038,9 +1076,12 @@
             document.getElementById('previewBtn').addEventListener('click', previewMarkdown);
             document.getElementById('downloadBtn').addEventListener('click', downloadDiary);
 
-            // 实时预览
+            // 实时预览（移动端仅在预览可见时更新）
             document.getElementById('editorContent').addEventListener('input', () => {
-                previewMarkdown();
+                const isMobile = window.innerWidth <= 768;
+                if (!isMobile || previewVisible) {
+                    previewMarkdown();
+                }
             });
 
             // 密码修改
@@ -1078,10 +1119,9 @@
                     authToken = data.token;
                     currentUser = data.username;
                     sessionTimeout = data.session_timeout;
-                    localStorage.setItem('diary_token', authToken);
+                    // 不再存 localStorage，依赖 httpOnly cookie
                     showApp();
                     loadDiaryList();
-                    // 检查是否未改密码
                     if (!data.password_changed) {
                         document.getElementById('passwordWarning').classList.add('show');
                     }
@@ -1113,7 +1153,6 @@
 
                 if (res.ok) {
                     authToken = data.token;
-                    localStorage.setItem('diary_token', authToken);
                     document.getElementById('lockScreen').classList.remove('show');
                     resetIdleTimer();
                     showToast('已解锁');
@@ -1129,14 +1168,15 @@
             try {
                 await fetch('/api/logout', {
                     method: 'POST',
-                    headers: { 'X-Auth-Token': authToken }
+                    credentials: 'include'
                 });
             } catch (e) {}
             
             localStorage.removeItem('diary_token');
             authToken = '';
             currentUser = '';
-            clearInterval(idleTimer);
+            clearIdleEventHandlers();
+            clearTimeout(idleTimer);
             showLoginPage();
             showToast('已退出登录');
         }
@@ -1145,32 +1185,43 @@
             document.getElementById('lockScreen').classList.add('show');
             document.getElementById('lockPassword').value = '';
             document.getElementById('lockPassword').focus();
-            clearInterval(idleTimer);
+            clearIdleEventHandlers();
+            clearTimeout(idleTimer);
         }
 
-        // ─── 空闲检测（修复：用 setTimeout 实现真正超时）──
+        // ─── 空闲检测（带事件监听器清理）──
+        function clearIdleEventHandlers() {
+            idleEventHandlers.forEach(({ event, handler }) => {
+                document.removeEventListener(event, handler);
+            });
+            idleEventHandlers = [];
+        }
+
         function resetIdleTimer() {
             clearTimeout(idleTimer);
+            clearIdleEventHandlers();
+
             idleTimer = setTimeout(() => {
                 lockScreen();
             }, sessionTimeout * 1000);
 
-            // 用户活动时重置计时器
+            const handler = () => {
+                clearTimeout(idleTimer);
+                idleTimer = setTimeout(() => {
+                    lockScreen();
+                }, sessionTimeout * 1000);
+            };
+
             const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
             events.forEach(evt => {
-                document.addEventListener(evt, () => {
-                    clearTimeout(idleTimer);
-                    idleTimer = setTimeout(() => {
-                        lockScreen();
-                    }, sessionTimeout * 1000);
-                }, { once: true });
+                document.addEventListener(evt, handler, { once: true });
+                idleEventHandlers.push({ event: evt, handler });
             });
         }
 
         // ─── 请求拦截器 ────────────────────────────────
         async function apiFetch(url, options = {}) {
             const headers = {
-                'X-Auth-Token': authToken,
                 ...options.headers
             };
 
@@ -1180,7 +1231,11 @@
             }
 
             try {
-                const res = await fetch(url, { ...options, headers });
+                const res = await fetch(url, {
+                    ...options,
+                    headers,
+                    credentials: 'include'
+                });
 
                 if (res.headers.get('X-Session-Expired') === 'true' || res.status === 401) {
                     localStorage.removeItem('diary_token');
@@ -1321,21 +1376,45 @@
             }
         }
 
-        // ─── Markdown 预览（使用 marked.js）────────────
-        function previewMarkdown() {
-            const content = document.getElementById('editorContent').value;
-            const preview = document.getElementById('previewPane');
+        // ─── Markdown 预览（使用 marked.js + sanitize）──
+        function sanitizeHtml(html) {
+            // 移除危险标签和属性
+            const dangerousTags = /<(script|iframe|object|embed|form|input|select|textarea|button|link|meta|style|video|audio|source|base|applet|frame|frameset)[^>]*>[\s\S]*?<\/\1>/gi;
+            const dangerousAttrs = /\s(on\w+|formaction|action|href)\s*=\s*["'][^"']*["']/gi;
+            const javascriptHrefs = /href\s*=\s*["']javascript:[^"']*["']/gi;
 
+            html = html.replace(dangerousTags, '');
+            html = html.replace(dangerousAttrs, '');
+            html = html.replace(javascriptHrefs, 'href="#"');
+            return html;
+        }
+
+        // 移动端预览切换状态
+        let previewVisible = false;
+
+        function previewMarkdown() {
+            const preview = document.getElementById('previewPane');
+            const isMobile = window.innerWidth <= 768;
+            
+            // 移动端：切换显示/隐藏
+            if (isMobile) {
+                previewVisible = !previewVisible;
+                preview.classList.toggle('show', previewVisible);
+                if (!previewVisible) return;
+            }
+            
+            const content = document.getElementById('editorContent').value;
             if (!content.trim()) {
                 preview.innerHTML = '<p style="color: #999;">Markdown 预览将在这里显示...</p>';
                 return;
             }
 
             if (markedReady) {
-                // 使用 marked.js 渲染
-                preview.innerHTML = marked.parse(content);
+                // 使用 marked.js 渲染 + sanitize
+                const rawHtml = marked.parse(content);
+                preview.innerHTML = sanitizeHtml(rawHtml);
             } else {
-                // 降级：基础正则替换
+                // 降级：基础正则替换（已 escapeHtml 所以安全）
                 let html = escapeHtml(content);
                 html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
                 html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
@@ -1489,14 +1568,15 @@
             }
 
             tbody.innerHTML = data.entries.map(entry => {
-                const parts = entry.split(' ');
-                const time = parts[0] || '';
-                const user = parts[1]?.replace('user=', '') || '';
-                const action = parts[2]?.replace('action=', '') || '';
-                const detail = parts[3]?.replace('detail=', '') || '';
-                const ip = parts[4]?.replace('ip=', '') || '';
+                // 使用 | 分隔符解析（后端已改为 | 分隔）
+                const parts = entry.split('|');
+                const time = (parts[0] || '').replace('[', '').replace(']', '').trim();
+                const user = (parts[1] || '').replace('user=', '').trim();
+                const action = (parts[2] || '').replace('action=', '').trim();
+                const detail = (parts[3] || '').replace('detail=', '').trim();
+                const ip = (parts[4] || '').replace('ip=', '').trim();
                 return `<tr>
-                    <td>${escapeHtml(time.replace('[', '').replace(']', ''))}</td>
+                    <td>${escapeHtml(time)}</td>
                     <td>${escapeHtml(user)}</td>
                     <td>${escapeHtml(action)}</td>
                     <td>${escapeHtml(detail)}</td>
@@ -1546,12 +1626,12 @@
             const newPwd = document.getElementById('newPassword').value;
             const confirmPwd = document.getElementById('confirmPassword').value;
 
-            if (!oldPwd || !newPwd) {
+            if (!oldPwd || !newPwd || !confirmPwd) {
                 showToast('请填写完整', 'error');
                 return;
             }
             if (newPwd !== confirmPwd) {
-                showToast('两次输入的密码不一致', 'error');
+                showToast('两次输入的新密码不一致', 'error');
                 return;
             }
             if (newPwd.length < 6) {
@@ -1579,7 +1659,7 @@
             
             try {
                 const res = await fetch('/api/backup', {
-                    headers: { 'X-Auth-Token': authToken }
+                    credentials: 'include'
                 });
 
                 if (!res.ok) throw new Error('备份失败');
@@ -1606,8 +1686,8 @@
             try {
                 const res = await fetch('/api/decrypt-backup', {
                     method: 'POST',
+                    credentials: 'include',
                     headers: { 
-                        'X-Auth-Token': authToken,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ password: password })
@@ -1648,7 +1728,7 @@
             try {
                 const res = await fetch('/api/restore', {
                     method: 'POST',
-                    headers: { 'X-Auth-Token': authToken },
+                    credentials: 'include',
                     body: formData
                 });
 

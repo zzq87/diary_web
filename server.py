@@ -74,11 +74,13 @@ except ImportError:
 _file_locks = {}
 _lock = threading.Lock()
 
+
 def _get_lock(name: str) -> threading.Lock:
     with _lock:
         if name not in _file_locks:
             _file_locks[name] = threading.Lock()
         return _file_locks[name]
+
 
 # ─── 加密模块 ──────────────────────────────────────────
 def get_or_create_master_key() -> bytes:
@@ -131,26 +133,40 @@ def decrypt_data(ciphertext_b64: str, key: bytes) -> tuple[bytes, bool]:
 
 
 # ─── 密码管理 ──────────────────────────────────────────
+PBKDF2_ITERATIONS = int(os.environ.get("DIARY_PBKDF2_ITERATIONS", "600000"))
+
+
 def hash_password(password: str) -> str:
     """使用 PBKDF2-SHA256 哈希密码"""
     salt = os.urandom(16)
-    pwd_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
+    pwd_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ITERATIONS)
     return base64.b64encode(salt + pwd_hash).decode()
 
 
 def verify_password(password: str, hashed: str) -> bool:
-    """验证密码"""
+    """验证密码（兼容旧 100000 次迭代哈希）"""
     try:
         raw = base64.b64decode(hashed)
         salt, stored_hash = raw[:16], raw[16:]
-        pwd_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
-        return hmac.compare_digest(pwd_hash, stored_hash)
+        pwd_hash = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), salt, PBKDF2_ITERATIONS
+        )
+        if hmac.compare_digest(pwd_hash, stored_hash):
+            return True
+        if PBKDF2_ITERATIONS != 100000:
+            pwd_hash_old = hashlib.pbkdf2_hmac(
+                "sha256", password.encode(), salt, 100000
+            )
+            if hmac.compare_digest(pwd_hash_old, stored_hash):
+                return True
+        return False
     except Exception:
         return False
 
 
 # ─── 用户管理 ──────────────────────────────────────────
 DEFAULT_PASSWORD = "admin123"
+
 
 def load_users() -> dict:
     """加载用户数据，首次启动时持久化默认 admin"""
@@ -159,7 +175,13 @@ def load_users() -> dict:
         if USERS_FILE.exists():
             return json.loads(USERS_FILE.read_text())
         # 首次启动，创建默认用户并持久化
-        default_users = {"admin": {"password_hash": hash_password(DEFAULT_PASSWORD), "created": datetime.now().isoformat(), "password_changed": False}}
+        default_users = {
+            "admin": {
+                "password_hash": hash_password(DEFAULT_PASSWORD),
+                "created": datetime.now().isoformat(),
+                "password_changed": False,
+            }
+        }
         USERS_FILE.write_text(json.dumps(default_users, ensure_ascii=False, indent=2))
         USERS_FILE.chmod(0o600)
         return default_users
@@ -180,7 +202,11 @@ def create_user(username: str, password: str) -> bool:
             users = json.loads(USERS_FILE.read_text())
         if username in users:
             return False
-        users[username] = {"password_hash": hash_password(password), "created": datetime.now().isoformat(), "password_changed": True}
+        users[username] = {
+            "password_hash": hash_password(password),
+            "created": datetime.now().isoformat(),
+            "password_changed": True,
+        }
         USERS_FILE.write_text(json.dumps(users, ensure_ascii=False, indent=2))
         USERS_FILE.chmod(0o600)
     return True
@@ -260,6 +286,7 @@ _rate_limit_lock = threading.Lock()
 _rate_limit_flush_interval = 10  # 每10秒刷盘一次
 _rate_limit_last_flush = 0
 
+
 def _load_rate_limits():
     """启动时从磁盘加载速率限制"""
     global _rate_limit_mem
@@ -268,6 +295,7 @@ def _load_rate_limits():
             _rate_limit_mem = json.loads(RATE_LIMIT_FILE.read_text())
     except Exception:
         _rate_limit_mem = {}
+
 
 def _flush_rate_limits():
     """将内存中的速率限制写入磁盘"""
@@ -281,6 +309,7 @@ def _flush_rate_limits():
     except Exception:
         pass
 
+
 def check_rate_limit(client_ip: str, endpoint: str = "api") -> bool:
     """检查速率限制，返回 True 表示允许"""
     key = f"{client_ip}:{endpoint}"
@@ -288,7 +317,11 @@ def check_rate_limit(client_ip: str, endpoint: str = "api") -> bool:
 
     with _rate_limit_lock:
         # 清理过期记录
-        expired = [k for k, v in _rate_limit_mem.items() if now - v.get("start", 0) > RATE_LIMIT_WINDOW]
+        expired = [
+            k
+            for k, v in _rate_limit_mem.items()
+            if now - v.get("start", 0) > RATE_LIMIT_WINDOW
+        ]
         for k in expired:
             del _rate_limit_mem[k]
 
@@ -311,7 +344,11 @@ def check_login_limit(client_ip: str) -> bool:
 
     with _rate_limit_lock:
         # 清理过期记录
-        expired = [k for k, v in _rate_limit_mem.items() if now - v.get("start", 0) > LOGIN_LOCKOUT_SECONDS]
+        expired = [
+            k
+            for k, v in _rate_limit_mem.items()
+            if now - v.get("start", 0) > LOGIN_LOCKOUT_SECONDS
+        ]
         for k in expired:
             del _rate_limit_mem[k]
 
@@ -338,13 +375,16 @@ def _sanitize_log_field(value: str) -> str:
 
 _audit_lock = threading.Lock()
 
+
 def audit_log(action: str, username: str, detail: str = "", ip: str = ""):
     """记录审计日志（带文件锁防并发写入冲突）"""
     timestamp = datetime.now().isoformat()
     username = _sanitize_log_field(username)
     detail = _sanitize_log_field(detail)
     ip = _sanitize_log_field(ip)
-    log_entry = f"[{timestamp}] user={username} action={action} detail={detail} ip={ip}\n"
+    log_entry = (
+        f"[{timestamp}] user={username} action={action} detail={detail} ip={ip}\n"
+    )
     with _audit_lock:
         with open(AUDIT_FILE, "a", encoding="utf-8") as f:
             f.write(log_entry)
@@ -376,6 +416,7 @@ async def lifespan(app: FastAPI):
 
     # 启动定时刷盘任务
     import asyncio
+
     flush_task = asyncio.create_task(_periodic_flush())
 
     yield
@@ -393,6 +434,7 @@ async def lifespan(app: FastAPI):
 async def _periodic_flush():
     """定时刷盘任务"""
     import asyncio
+
     while True:
         await asyncio.sleep(_rate_limit_flush_interval)
         _flush_rate_limits()
@@ -401,7 +443,7 @@ async def _periodic_flush():
 app = FastAPI(
     title="本地日记本",
     description="安全增强版 Markdown 日记管理系统",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 
@@ -455,6 +497,7 @@ def require_auth(func):
         request.state.username = username
         request.state.token = token
         return await func(request, *args, **kwargs)
+
     return wrapper
 
 
@@ -500,12 +543,14 @@ async def login(request: Request):
     # 检测是否首次登录（未改过密码）
     password_changed = user.get("password_changed", False)
 
-    response = JSONResponse(content={
-        "token": token,
-        "username": username,
-        "session_timeout": SESSION_TIMEOUT,
-        "password_changed": password_changed,
-    })
+    response = JSONResponse(
+        content={
+            "token": token,
+            "username": username,
+            "session_timeout": SESSION_TIMEOUT,
+            "password_changed": password_changed,
+        }
+    )
     response.set_cookie(
         key="diary_token",
         value=token,
@@ -558,7 +603,9 @@ async def change_password(request: Request):
     # 改密码也受登录尝试限制
     client_ip = request.client.host
     if not check_login_limit(client_ip):
-        return JSONResponse(status_code=429, content={"error": "尝试次数过多，请稍后重试"})
+        return JSONResponse(
+            status_code=429, content={"error": "尝试次数过多，请稍后重试"}
+        )
 
     try:
         body = await request.json()
@@ -588,6 +635,7 @@ async def change_password(request: Request):
 
 
 # ─── 受保护的路由 ──────────────────────────────────────
+
 
 # ─── 辅助函数 ──────────────────────────────────────────
 def get_diary_path(date_str: str) -> Path:
@@ -639,7 +687,7 @@ def write_diary_file(path: Path, content: str):
 
 def parse_tags(content: str) -> list[str]:
     """从内容中提取标签"""
-    tags = re.findall(r'#([\w\u4e00-\u9fff]+)', content)
+    tags = re.findall(r"#([\w\u4e00-\u9fff]+)", content)
     return list(set(tags))
 
 
@@ -655,6 +703,7 @@ def get_preview(content: str, max_length: int = 100) -> str:
 
 # ─── Streak 缓存 ───────────────────────────────────────
 _streak_cache = {"value": 0, "computed_at": 0, "ttl": 300}  # 5分钟缓存
+
 
 def calculate_streak() -> int:
     """计算连续写日记的天数（修复逻辑 + 缓存）"""
@@ -686,7 +735,7 @@ def sanitize_input(text: str, max_length: int = 10000) -> str:
     if not text:
         return ""
     text = text[:max_length]
-    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
     return text
 
 
@@ -696,10 +745,14 @@ _stats_cache = {"value": None, "computed_at": 0, "ttl": 60}  # 1分钟缓存
 # ─── 日记文件列表缓存 ─────────────────────────────────
 _diary_files_cache = {"files": None, "computed_at": 0, "ttl": 30}  # 30秒缓存
 
+
 def _get_diary_files() -> list[str]:
     """获取日记文件列表（带缓存）"""
     now = time.time()
-    if _diary_files_cache["files"] is not None and now - _diary_files_cache["computed_at"] < _diary_files_cache["ttl"]:
+    if (
+        _diary_files_cache["files"] is not None
+        and now - _diary_files_cache["computed_at"] < _diary_files_cache["ttl"]
+    ):
         return _diary_files_cache["files"]
     pattern = str(DIARY_DIR) + "/*/*/*.md"
     files = sorted(glob.glob(pattern), reverse=True)
@@ -707,12 +760,14 @@ def _get_diary_files() -> list[str]:
     _diary_files_cache["computed_at"] = now
     return files
 
+
 def _invalidate_diary_files_cache():
     """使文件列表缓存失效"""
     _diary_files_cache["computed_at"] = 0
     _diary_files_cache["files"] = None
     # 同时使 stats 缓存失效
     _stats_cache["computed_at"] = 0
+
 
 @app.get("/api/diaries")
 @require_auth
@@ -726,7 +781,7 @@ async def list_diaries(request: Request, limit: int = 30, offset: int = 0):
     entries = []
     files = _get_diary_files()
 
-    for filepath in files[offset:offset + limit]:
+    for filepath in files[offset : offset + limit]:
         path = Path(filepath)
         date_str = path.stem
         month_str = path.parent.name
@@ -743,17 +798,21 @@ async def list_diaries(request: Request, limit: int = 30, offset: int = 0):
             if first_line.startswith("# "):
                 title = first_line[2:].strip()
 
-            entries.append({
-                "date": full_date,
-                "title": title,
-                "preview": preview,
-                "tags": tags,
-                "word_count": len(content.replace(" ", "").replace("\n", "")),
-            })
+            entries.append(
+                {
+                    "date": full_date,
+                    "title": title,
+                    "preview": preview,
+                    "tags": tags,
+                    "word_count": len(content.replace(" ", "").replace("\n", "")),
+                }
+            )
         except Exception as e:
             logger.error(f"读取日记失败 {full_date}: {e}")
 
-    audit_log("LIST_DIARIES", username, f"limit={limit} offset={offset}", request.client.host)
+    audit_log(
+        "LIST_DIARIES", username, f"limit={limit} offset={offset}", request.client.host
+    )
 
     return {"entries": entries, "total": len(files)}
 
@@ -807,7 +866,9 @@ async def save_diary(request: Request, date: str):
     _streak_cache["computed_at"] = 0
     _invalidate_diary_files_cache()
 
-    audit_log("SAVE_DIARY", username, f"date={date} size={len(content)}", request.client.host)
+    audit_log(
+        "SAVE_DIARY", username, f"date={date} size={len(content)}", request.client.host
+    )
 
     return {"status": "ok", "date": date, "encrypted": ENCRYPTION_ENABLED}
 
@@ -874,16 +935,23 @@ async def search_diaries(request: Request, q: str):
                         year_str = path.parent.parent.name
                         full_date = f"{year_str}-{month_str}-{date_str}"
 
-                        results.append({
-                            "date": full_date,
-                            "preview": line.strip()[:150],
-                            "tags": parse_tags(content),
-                        })
+                        results.append(
+                            {
+                                "date": full_date,
+                                "preview": line.strip()[:150],
+                                "tags": parse_tags(content),
+                            }
+                        )
                         break
         except Exception:
             continue
 
-    audit_log("SEARCH", username, f"query_len={len(q)} results={len(results)}", request.client.host)
+    audit_log(
+        "SEARCH",
+        username,
+        f"query_len={len(q)} results={len(results)}",
+        request.client.host,
+    )
 
     return {"results": results, "total": len(results)}
 
@@ -895,14 +963,21 @@ async def get_stats(request: Request):
     username = request.state.username
 
     now = time.time()
-    if _stats_cache["value"] is not None and now - _stats_cache["computed_at"] < _stats_cache["ttl"]:
+    if (
+        _stats_cache["value"] is not None
+        and now - _stats_cache["computed_at"] < _stats_cache["ttl"]
+    ):
         return _stats_cache["value"]
 
     if not DIARY_DIR.exists():
         result = {
-            "total_entries": 0, "total_words": 0,
-            "first_date": None, "last_date": None,
-            "streak": 0, "tags": {}, "encrypted": ENCRYPTION_ENABLED,
+            "total_entries": 0,
+            "total_words": 0,
+            "first_date": None,
+            "last_date": None,
+            "streak": 0,
+            "tags": {},
+            "encrypted": ENCRYPTION_ENABLED,
         }
         _stats_cache["value"] = result
         _stats_cache["computed_at"] = now
@@ -1006,7 +1081,7 @@ async def create_backup(request: Request):
 
     backup_data = io.BytesIO()
 
-    with zipfile.ZipFile(backup_data, 'w', zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(backup_data, "w", zipfile.ZIP_DEFLATED) as zf:
         for filepath in sorted(glob.glob(str(DIARY_DIR) + "/**/*.md", recursive=True)):
             path = Path(filepath)
             rel_path = path.relative_to(DIARY_DIR.parent)
@@ -1027,7 +1102,9 @@ async def create_backup(request: Request):
     return Response(
         content=backup_data.getvalue(),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="diary_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}.zip"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="diary_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}.zip"'
+        },
     )
 
 
@@ -1040,7 +1117,7 @@ async def restore_backup(request: Request):
     try:
         form = await request.form()
         backup_file = form.get("backup")
-        if not backup_file or not hasattr(backup_file, 'read'):
+        if not backup_file or not hasattr(backup_file, "read"):
             raise HTTPException(status_code=400, detail="请上传 ZIP 备份文件")
 
         zip_bytes = await backup_file.read()
@@ -1056,7 +1133,9 @@ async def restore_backup(request: Request):
         raise HTTPException(status_code=400, detail="无效的 ZIP 文件")
 
     if "metadata.json" not in zf.namelist():
-        raise HTTPException(status_code=400, detail="备份文件缺少 metadata.json，格式不正确")
+        raise HTTPException(
+            status_code=400, detail="备份文件缺少 metadata.json，格式不正确"
+        )
 
     try:
         metadata = json.loads(zf.read("metadata.json"))
@@ -1106,7 +1185,12 @@ async def restore_backup(request: Request):
     _streak_cache["computed_at"] = 0
     _invalidate_diary_files_cache()
 
-    audit_log("BACKUP_RESTORED", username, f"restored={restored} skipped={skipped}", request.client.host)
+    audit_log(
+        "BACKUP_RESTORED",
+        username,
+        f"restored={restored} skipped={skipped}",
+        request.client.host,
+    )
 
     return {
         "status": "ok",
@@ -1143,7 +1227,7 @@ async def decrypt_backup_api(request: Request):
 
     backup_data = io.BytesIO()
 
-    with zipfile.ZipFile(backup_data, 'w', zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(backup_data, "w", zipfile.ZIP_DEFLATED) as zf:
         for filepath in sorted(glob.glob(str(DIARY_DIR) + "/**/*.md", recursive=True)):
             path = Path(filepath)
             rel_path = path.relative_to(DIARY_DIR.parent)
@@ -1170,7 +1254,9 @@ async def decrypt_backup_api(request: Request):
     return Response(
         content=backup_data.getvalue(),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="diary_backup_decrypted_{datetime.now().strftime("%Y%m%d_%H%M%S")}.zip"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="diary_backup_decrypted_{datetime.now().strftime("%Y%m%d_%H%M%S")}.zip"'
+        },
     )
 
 
