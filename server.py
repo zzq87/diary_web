@@ -591,6 +591,7 @@ async def auth_status(request: Request):
         return {
             "authenticated": True,
             "username": username,
+            "role": user.get("role", "admin" if username == "admin" else "user"),
             "password_changed": user.get("password_changed", False),
         }
     return {"authenticated": False}

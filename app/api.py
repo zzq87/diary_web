@@ -35,6 +35,12 @@ from .auth import (
     audit_log,
     _load_rate_limits,
     _flush_rate_limits,
+    create_user,
+    delete_user,
+    update_user,
+    get_user_info,
+    list_users,
+    is_admin,
 )
 from .diary import (
     get_diary_path,
@@ -52,7 +58,7 @@ from .diary import (
     get_calendar_month,
 )
 from .crypto import get_or_create_master_key
-from .middleware import security_headers_middleware, require_auth
+from .middleware import security_headers_middleware, require_auth, require_admin
 
 logger = logging.getLogger("diary.api")
 
@@ -110,7 +116,11 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.get("/", response_class=HTMLResponse)
     async def index():
-        return FileResponse(str(BASE_DIR / "static" / "index.html"))
+        response = FileResponse(str(BASE_DIR / "static" / "index.html"))
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
     @app.post("/api/login")
     async def login(request: Request):
@@ -154,6 +164,7 @@ def _register_routes(app: FastAPI) -> None:
                 "username": username,
                 "session_timeout": SESSION_TIMEOUT,
                 "password_changed": password_changed,
+                "role": user.get("role", "user"),
             }
         )
         response.set_cookie(
@@ -190,12 +201,55 @@ def _register_routes(app: FastAPI) -> None:
         if username:
             users = load_users()
             user = users.get(username, {})
+            role = user.get("role", "admin" if username == "admin" else "user")
             return {
                 "authenticated": True,
                 "username": username,
+                "role": role,
                 "password_changed": user.get("password_changed", False),
             }
         return {"authenticated": False}
+
+    @app.post("/api/auth/register")
+    async def register(request: Request):
+        client_ip = request.client.host or "unknown"
+        if not check_login_limit(client_ip):
+            return JSONResponse(
+                status_code=429, content={"error": "尝试次数过多，请稍后重试"}
+            )
+
+        try:
+            body = await request.json()
+            username = body.get("username", "").strip()
+            password = body.get("password", "")
+            confirm_password = body.get("confirm_password", "")
+        except Exception:
+            return JSONResponse(status_code=400, content={"error": "请求格式错误"})
+
+        if not username or len(username) < 2:
+            return JSONResponse(
+                status_code=400, content={"error": "用户名至少 2 个字符"}
+            )
+        if len(username) > 32:
+            return JSONResponse(
+                status_code=400, content={"error": "用户名最多 32 个字符"}
+            )
+        if not username.replace("_", "").replace("-", "").isalnum():
+            return JSONResponse(
+                status_code=400,
+                content={"error": "用户名只能包含字母、数字、下划线和连字符"},
+            )
+        if not password or len(password) < 6:
+            return JSONResponse(status_code=400, content={"error": "密码至少 6 个字符"})
+        if password != confirm_password:
+            return JSONResponse(
+                status_code=400, content={"error": "两次输入的密码不一致"}
+            )
+
+        if create_user(username, password, role="user"):
+            audit_log("USER_REGISTERED", username, f"ip={client_ip}", client_ip)
+            return {"status": "ok", "message": "注册成功，请登录"}
+        return JSONResponse(status_code=409, content={"error": "用户名已存在"})
 
     @app.post("/api/auth/change-password")
     @require_auth
@@ -235,6 +289,98 @@ def _register_routes(app: FastAPI) -> None:
         audit_log("PASSWORD_CHANGED", username, "", client_ip)
 
         return {"status": "ok", "message": "密码已修改"}
+
+    # ─── 用户管理（仅管理员）───────────────────────────
+
+    @app.get("/api/users")
+    @require_admin
+    async def get_users(request: Request):
+        username = request.state.username
+        audit_log("LIST_USERS", username, "", request.client.host or "unknown")
+        return {"users": list_users()}
+
+    @app.post("/api/users")
+    @require_admin
+    async def admin_create_user(request: Request):
+        admin_name = request.state.username
+        try:
+            body = await request.json()
+            new_username = body.get("username", "").strip()
+            password = body.get("password", "")
+            role = body.get("role", "user")
+        except Exception:
+            return JSONResponse(status_code=400, content={"error": "请求格式错误"})
+
+        if not new_username or len(new_username) < 2:
+            return JSONResponse(
+                status_code=400, content={"error": "用户名至少 2 个字符"}
+            )
+        if len(new_username) > 32:
+            return JSONResponse(
+                status_code=400, content={"error": "用户名最多 32 个字符"}
+            )
+        if not password or len(password) < 6:
+            return JSONResponse(status_code=400, content={"error": "密码至少 6 个字符"})
+        if role not in ("admin", "user"):
+            return JSONResponse(status_code=400, content={"error": "无效的角色"})
+
+        if create_user(new_username, password, role=role):
+            audit_log(
+                "ADMIN_CREATE_USER",
+                admin_name,
+                f"target={new_username} role={role}",
+                request.client.host or "unknown",
+            )
+            return {"status": "ok", "message": f"用户 {new_username} 已创建"}
+        return JSONResponse(status_code=409, content={"error": "用户名已存在"})
+
+    @app.put("/api/users/{target_username}")
+    @require_admin
+    async def admin_update_user(request: Request, target_username: str):
+        admin_name = request.state.username
+        try:
+            body = await request.json()
+            updates = {}
+            if "role" in body:
+                updates["role"] = body["role"]
+            if "password" in body and body["password"]:
+                if len(body["password"]) < 6:
+                    return JSONResponse(
+                        status_code=400, content={"error": "密码至少 6 个字符"}
+                    )
+                updates["password_hash"] = hash_password(body["password"])
+                updates["password_changed"] = True
+        except Exception:
+            return JSONResponse(status_code=400, content={"error": "请求格式错误"})
+
+        if not updates:
+            return JSONResponse(status_code=400, content={"error": "没有要更新的字段"})
+
+        if update_user(target_username, **updates):
+            audit_log(
+                "ADMIN_UPDATE_USER",
+                admin_name,
+                f"target={target_username}",
+                request.client.host or "unknown",
+            )
+            return {"status": "ok", "message": f"用户 {target_username} 已更新"}
+        return JSONResponse(status_code=404, content={"error": "用户不存在"})
+
+    @app.delete("/api/users/{target_username}")
+    @require_admin
+    async def admin_delete_user(request: Request, target_username: str):
+        admin_name = request.state.username
+        if target_username == admin_name:
+            return JSONResponse(status_code=400, content={"error": "不能删除自己"})
+        if delete_user(target_username):
+            audit_log(
+                "ADMIN_DELETE_USER",
+                admin_name,
+                f"target={target_username}",
+                request.client.host or "unknown",
+            )
+            return {"status": "ok", "message": f"用户 {target_username} 已删除"}
+        return JSONResponse(status_code=404, content={"error": "用户不存在"})
 
     # ─── 受保护的路由 ──────────────────────────────────
 

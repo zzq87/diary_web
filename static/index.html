@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>📝 本地日记本</title>
     <!-- marked.js CDN for proper Markdown rendering -->
@@ -678,6 +681,41 @@
         }
         .autosave-indicator.saving { color: var(--warning); }
         .autosave-indicator.saved { color: var(--success); }
+
+        /* 用户管理 */
+        .user-role-badge {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        .user-role-badge.admin { background: #e3f2fd; color: #1976d2; }
+        .user-role-badge.user { background: #f5f5f5; color: #666; }
+        .user-actions { display: flex; gap: 0.5rem; }
+        .user-actions .btn { padding: 0.3rem 0.6rem; font-size: 0.8rem; }
+
+        /* 模态框 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 2rem;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        .modal h3 { margin-bottom: 1rem; }
+        .modal-actions { display: flex; gap: 0.5rem; margin-top: 1.5rem; justify-content: flex-end; }
     </style>
 </head>
 <body>
@@ -687,18 +725,43 @@
             <h1>📝 本地日记本</h1>
             <p class="subtitle">安全增强版 · 数据本地存储</p>
             <div class="login-error" id="loginError"></div>
-            <form id="loginForm">
-                <div class="form-group">
-                    <label>用户名</label>
-                    <input type="text" id="loginUsername" placeholder="admin" autocomplete="username" required>
+            <div id="loginFormContainer">
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label>用户名</label>
+                        <input type="text" id="loginUsername" placeholder="输入用户名" autocomplete="username" required>
+                    </div>
+                    <div class="form-group">
+                        <label>密码</label>
+                        <input type="password" id="loginPassword" placeholder="输入密码" autocomplete="current-password" required>
+                    </div>
+                    <button type="submit" class="login-btn" id="loginBtn">登 录</button>
+                </form>
+                <div class="login-footer">
+                    <p>还没有账号？<a href="#" id="showRegisterLink">立即注册</a></p>
                 </div>
-                <div class="form-group">
-                    <label>密码</label>
-                    <input type="password" id="loginPassword" placeholder="输入密码" autocomplete="current-password" required>
+            </div>
+            <div id="registerFormContainer" style="display: none;">
+                <form id="registerForm">
+                    <div class="form-group">
+                        <label>用户名</label>
+                        <input type="text" id="registerUsername" placeholder="2-32个字符，字母/数字/下划线" autocomplete="username" required>
+                    </div>
+                    <div class="form-group">
+                        <label>密码</label>
+                        <input type="password" id="registerPassword" placeholder="至少6个字符" autocomplete="new-password" required>
+                    </div>
+                    <div class="form-group">
+                        <label>确认密码</label>
+                        <input type="password" id="registerConfirmPassword" placeholder="再次输入密码" autocomplete="new-password" required>
+                    </div>
+                    <button type="submit" class="login-btn" id="registerBtn">注 册</button>
+                </form>
+                <div class="login-footer">
+                    <p>已有账号？<a href="#" id="showLoginLink">返回登录</a></p>
                 </div>
-                <button type="submit" class="login-btn" id="loginBtn">登 录</button>
-            </form>
-            <div class="login-footer">
+            </div>
+            <div class="login-footer" style="margin-top: 1rem;">
                 <p>🔒 数据本地存储，不会上传到云端</p>
                 <p id="encryptionStatus" style="margin-top: 0.5rem;"></p>
             </div>
@@ -739,6 +802,7 @@
                 <button class="nav-link" data-view="editor">✏️ 写日记</button>
                 <button class="nav-link" data-view="stats">📊 统计</button>
                 <button class="nav-link" data-view="audit">📜 日志</button>
+                <button class="nav-link" data-view="users" id="usersNavLink" style="display: none;">👥 用户</button>
                 <button class="nav-link" data-view="settings">⚙️ 设置</button>
             </div>
             <div class="nav-right">
@@ -911,6 +975,28 @@
                     </div>
                 </div>
             </div>
+
+            <!-- 用户管理（仅管理员可见） -->
+            <div id="usersView" class="view">
+                <h3 style="margin-bottom: 1rem;">👥 用户管理</h3>
+                <div style="margin-bottom: 1.5rem;">
+                    <button class="btn btn-primary" id="addUserBtn">➕ 新建用户</button>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="audit-table" id="usersTable">
+                        <thead>
+                            <tr>
+                                <th>用户名</th>
+                                <th>角色</th>
+                                <th>创建时间</th>
+                                <th>密码状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
         </main>
 
         <!-- 移动端底部导航 -->
@@ -941,10 +1027,53 @@
     <!-- Toast -->
     <div class="toast" id="toast"></div>
 
+    <!-- 用户管理模态框 -->
+    <div class="modal-overlay" id="userModal">
+        <div class="modal">
+            <h3 id="userModalTitle">新建用户</h3>
+            <div class="form-group">
+                <label>用户名</label>
+                <input type="text" id="modalUsername" placeholder="2-32个字符">
+            </div>
+            <div class="form-group">
+                <label>密码</label>
+                <input type="password" id="modalPassword" placeholder="至少6个字符">
+            </div>
+            <div class="form-group">
+                <label>角色</label>
+                <select id="modalRole" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px;">
+                    <option value="user">普通用户</option>
+                    <option value="admin">管理员</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="cancelUserModal">取消</button>
+                <button class="btn btn-primary" id="saveUserBtn">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 重置密码模态框 -->
+    <div class="modal-overlay" id="resetPasswordModal">
+        <div class="modal">
+            <h3>重置密码</h3>
+            <p style="margin-bottom: 1rem; color: var(--text-light);">用户：<span id="resetPasswordUser"></span></p>
+            <div class="form-group">
+                <label>新密码</label>
+                <input type="password" id="resetPasswordInput" placeholder="至少6个字符">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="cancelResetPassword">取消</button>
+                <button class="btn btn-primary" id="confirmResetPassword">确认重置</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // 全局状态
         let authToken = '';
         let currentUser = '';
+        let currentUserRole = 'user';
         let sessionTimeout = 3600;
         let idleTimer = null;
         let autoSaveTimer = null;
@@ -977,6 +1106,7 @@
 
                 if (data.authenticated) {
                     currentUser = data.username;
+                    currentUserRole = data.role || 'user';
                     if (!data.password_changed) {
                         document.getElementById('passwordWarning').classList.add('show');
                     }
@@ -1002,6 +1132,8 @@
             document.getElementById('appContainer').style.display = 'block';
             document.getElementById('lockScreen').classList.remove('show');
             document.getElementById('currentUser').textContent = currentUser;
+            // 仅管理员显示用户管理入口
+            document.getElementById('usersNavLink').style.display = currentUserRole === 'admin' ? 'inline-block' : 'none';
             resetIdleTimer();
         }
 
@@ -1024,6 +1156,19 @@
         function bindEvents() {
             // 登录表单
             document.getElementById('loginForm').addEventListener('submit', handleLogin);
+
+            // 注册表单切换
+            document.getElementById('showRegisterLink').addEventListener('click', (e) => {
+                e.preventDefault();
+                document.getElementById('loginFormContainer').style.display = 'none';
+                document.getElementById('registerFormContainer').style.display = 'block';
+            });
+            document.getElementById('showLoginLink').addEventListener('click', (e) => {
+                e.preventDefault();
+                document.getElementById('registerFormContainer').style.display = 'none';
+                document.getElementById('loginFormContainer').style.display = 'block';
+            });
+            document.getElementById('registerForm').addEventListener('submit', handleRegister);
 
             // 密码警告提示
             document.getElementById('dismissPasswordWarningBtn').addEventListener('click', dismissPasswordWarning);
@@ -1094,6 +1239,13 @@
                 document.getElementById('restoreFileInput').click();
             });
             document.getElementById('restoreFileInput').addEventListener('change', (e) => restoreBackup(e.target));
+
+            // 用户管理
+            document.getElementById('addUserBtn').addEventListener('click', () => openUserModal());
+            document.getElementById('cancelUserModal').addEventListener('click', closeUserModal);
+            document.getElementById('saveUserBtn').addEventListener('click', saveUser);
+            document.getElementById('cancelResetPassword').addEventListener('click', closeResetPasswordModal);
+            document.getElementById('confirmResetPassword').addEventListener('click', confirmResetPassword);
         }
 
         async function handleLogin(e) {
@@ -1118,6 +1270,7 @@
                 if (res.ok) {
                     authToken = data.token;
                     currentUser = data.username;
+                    currentUserRole = data.role || 'user';
                     sessionTimeout = data.session_timeout;
                     // 不再存 localStorage，依赖 httpOnly cookie
                     showApp();
@@ -1137,6 +1290,62 @@
             btn.disabled = false;
             btn.textContent = '登 录';
             return false;
+        }
+
+        async function handleRegister(e) {
+            e.preventDefault();
+            const btn = document.getElementById('registerBtn');
+            const username = document.getElementById('registerUsername').value.trim();
+            const password = document.getElementById('registerPassword').value;
+            const confirmPassword = document.getElementById('registerConfirmPassword').value;
+
+            if (!username || username.length < 2) {
+                showToast('用户名至少 2 个字符', 'error');
+                return;
+            }
+            if (username.length > 32) {
+                showToast('用户名最多 32 个字符', 'error');
+                return;
+            }
+            if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+                showToast('用户名只能包含字母、数字、下划线和连字符', 'error');
+                return;
+            }
+            if (password.length < 6) {
+                showToast('密码至少 6 个字符', 'error');
+                return;
+            }
+            if (password !== confirmPassword) {
+                showToast('两次输入的密码不一致', 'error');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '注册中...';
+
+            try {
+                const res = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, confirm_password: confirmPassword })
+                });
+                const data = await res.json();
+
+                if (res.ok) {
+                    showToast('✅ 注册成功，请登录');
+                    document.getElementById('registerFormContainer').style.display = 'none';
+                    document.getElementById('loginFormContainer').style.display = 'block';
+                    document.getElementById('loginUsername').value = username;
+                    document.getElementById('registerForm').reset();
+                } else {
+                    showToast(data.error, 'error');
+                }
+            } catch (err) {
+                showToast('网络连接失败', 'error');
+            }
+
+            btn.disabled = false;
+            btn.textContent = '注 册';
         }
 
         async function handleUnlock() {
@@ -1283,6 +1492,7 @@
             if (viewName === 'calendar') loadCalendar();
             if (viewName === 'stats') loadStats();
             if (viewName === 'audit') loadAudit();
+            if (viewName === 'users') loadUsers();
             if (viewName === 'settings') loadSettings();
             if (viewName === 'editor') {
                 document.getElementById('editorDate').value = new Date().toISOString().split('T')[0];
@@ -1824,10 +2034,177 @@
             setTimeout(loadDraft, 500);
         }
 
+        // ─── 用户管理 ──────────────────────────────────
+        let editingUser = null;
+        let resettingUser = null;
+
+        async function loadUsers() {
+            if (currentUserRole !== 'admin') return;
+            const tbody = document.getElementById('usersTableBody');
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">加载中...</td></tr>';
+
+            const res = await apiFetch('/api/users');
+            if (!res) return;
+            const data = await res.json();
+
+            if (data.users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">暂无用户</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = data.users.map(u => `
+                <tr>
+                    <td>${escapeHtml(u.username)}</td>
+                    <td><span class="user-role-badge ${u.role}">${u.role === 'admin' ? '管理员' : '普通用户'}</span></td>
+                    <td>${u.created ? u.created.slice(0, 10) : '-'}</td>
+                    <td>${u.password_changed ? '✅ 已设置' : '⚠️ 默认密码'}</td>
+                    <td>
+                        <div class="user-actions">
+                            <button class="btn btn-secondary" onclick="openUserModal('${escapeHtml(u.username)}')">编辑</button>
+                            <button class="btn btn-warning" onclick="openResetPasswordModal('${escapeHtml(u.username)}')">重置密码</button>
+                            ${u.username !== 'admin' ? `<button class="btn btn-danger" onclick="deleteUser('${escapeHtml(u.username)}')">删除</button>` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function openUserModal(username = null) {
+            editingUser = username;
+            const modal = document.getElementById('userModal');
+            const title = document.getElementById('userModalTitle');
+            const usernameInput = document.getElementById('modalUsername');
+            const passwordInput = document.getElementById('modalPassword');
+            const roleSelect = document.getElementById('modalRole');
+
+            if (username) {
+                title.textContent = '编辑用户';
+                usernameInput.value = username;
+                usernameInput.disabled = true;
+                passwordInput.placeholder = '留空则不修改密码';
+                passwordInput.value = '';
+                // 获取当前角色
+                const rows = document.querySelectorAll('#usersTableBody tr');
+                rows.forEach(row => {
+                    if (row.cells[0].textContent === username) {
+                        const badge = row.cells[1].querySelector('.user-role-badge');
+                        roleSelect.value = badge.classList.contains('admin') ? 'admin' : 'user';
+                    }
+                });
+            } else {
+                title.textContent = '新建用户';
+                usernameInput.value = '';
+                usernameInput.disabled = false;
+                passwordInput.placeholder = '至少6个字符';
+                passwordInput.value = '';
+                roleSelect.value = 'user';
+            }
+
+            modal.classList.add('show');
+        }
+
+        function closeUserModal() {
+            document.getElementById('userModal').classList.remove('show');
+            editingUser = null;
+        }
+
+        async function saveUser() {
+            const username = document.getElementById('modalUsername').value.trim();
+            const password = document.getElementById('modalPassword').value;
+            const role = document.getElementById('modalRole').value;
+
+            if (!editingUser && (!username || username.length < 2)) {
+                showToast('用户名至少 2 个字符', 'error');
+                return;
+            }
+            if (!editingUser && (!password || password.length < 6)) {
+                showToast('密码至少 6 个字符', 'error');
+                return;
+            }
+            if (editingUser && password && password.length < 6) {
+                showToast('密码至少 6 个字符', 'error');
+                return;
+            }
+
+            try {
+                let res;
+                if (editingUser) {
+                    const body = { role };
+                    if (password) body.password = password;
+                    res = await apiFetch(`/api/users/${editingUser}`, {
+                        method: 'PUT',
+                        body
+                    });
+                } else {
+                    res = await apiFetch('/api/users', {
+                        method: 'POST',
+                        body: { username, password, role }
+                    });
+                }
+
+                if (res) {
+                    showToast(editingUser ? '✅ 用户已更新' : '✅ 用户已创建');
+                    closeUserModal();
+                    loadUsers();
+                }
+            } catch (err) {
+                showToast('操作失败', 'error');
+            }
+        }
+
+        async function deleteUser(username) {
+            if (!confirm(`确定要删除用户 "${username}" 吗？此操作不可恢复。`)) return;
+
+            const res = await apiFetch(`/api/users/${username}`, { method: 'DELETE' });
+            if (res) {
+                showToast(`✅ 用户 ${username} 已删除`);
+                loadUsers();
+            }
+        }
+
+        function openResetPasswordModal(username) {
+            resettingUser = username;
+            document.getElementById('resetPasswordUser').textContent = username;
+            document.getElementById('resetPasswordInput').value = '';
+            document.getElementById('resetPasswordModal').classList.add('show');
+        }
+
+        function closeResetPasswordModal() {
+            document.getElementById('resetPasswordModal').classList.remove('show');
+            resettingUser = null;
+        }
+
+        async function confirmResetPassword() {
+            const password = document.getElementById('resetPasswordInput').value;
+            if (!password || password.length < 6) {
+                showToast('密码至少 6 个字符', 'error');
+                return;
+            }
+
+            const res = await apiFetch(`/api/users/${resettingUser}`, {
+                method: 'PUT',
+                body: { password }
+            });
+
+            if (res) {
+                showToast('✅ 密码已重置');
+                closeResetPasswordModal();
+                loadUsers();
+            }
+        }
+
         // ─── 初始化 ────────────────────────────────────
         document.addEventListener('DOMContentLoaded', async () => {
             bindEvents();
             setupAutoSave();
+
+            // 点击模态框外部关闭
+            document.getElementById('userModal').addEventListener('click', (e) => {
+                if (e.target.id === 'userModal') closeUserModal();
+            });
+            document.getElementById('resetPasswordModal').addEventListener('click', (e) => {
+                if (e.target.id === 'resetPasswordModal') closeResetPasswordModal();
+            });
 
             await checkAuth();
 

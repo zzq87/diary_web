@@ -87,12 +87,19 @@ def load_users() -> dict:
     lock = _get_lock("users")
     with lock:
         if USERS_FILE.exists():
-            return _load_json(USERS_FILE)
+            users = _load_json(USERS_FILE)
+            # 迁移：为旧用户添加默认角色
+            for uname, udata in users.items():
+                if "role" not in udata:
+                    udata["role"] = "admin" if uname == "admin" else "user"
+            _save_json(USERS_FILE, users, locked=True)
+            return users
         default_users = {
             "admin": {
                 "password_hash": hash_password(_get_default_password()),
                 "created": datetime.now().isoformat(),
                 "password_changed": False,
+                "role": "admin",
             }
         }
         _save_json(USERS_FILE, default_users)
@@ -111,7 +118,13 @@ def save_users(users: dict) -> None:
         _save_json(USERS_FILE, users)
 
 
-def create_user(username: str, password: str) -> bool:
+def create_user(username: str, password: str, role: str = "user") -> bool:
+    if not username or len(username) < 2:
+        return False
+    if not password or len(password) < 6:
+        return False
+    if role not in ("admin", "user"):
+        return False
     lock = _get_lock("users")
     with lock:
         users = _load_json(USERS_FILE) if USERS_FILE.exists() else {}
@@ -121,9 +134,72 @@ def create_user(username: str, password: str) -> bool:
             "password_hash": hash_password(password),
             "created": datetime.now().isoformat(),
             "password_changed": True,
+            "role": role,
         }
         _save_json(USERS_FILE, users, locked=True)
     return True
+
+
+def delete_user(username: str) -> bool:
+    if username == "admin":
+        return False
+    lock = _get_lock("users")
+    with lock:
+        users = _load_json(USERS_FILE) if USERS_FILE.exists() else {}
+        if username not in users:
+            return False
+        del users[username]
+        _save_json(USERS_FILE, users, locked=True)
+    return True
+
+
+def update_user(username: str, **kwargs) -> bool:
+    if username == "admin" and "role" in kwargs:
+        return False
+    allowed = {"password_hash", "password_changed", "role"}
+    updates = {k: v for k, v in kwargs.items() if k in allowed}
+    if not updates:
+        return False
+    lock = _get_lock("users")
+    with lock:
+        users = _load_json(USERS_FILE) if USERS_FILE.exists() else {}
+        if username not in users:
+            return False
+        users[username].update(updates)
+        _save_json(USERS_FILE, users, locked=True)
+    return True
+
+
+def get_user_info(username: str) -> Optional[dict]:
+    users = load_users()
+    user = users.get(username)
+    if not user:
+        return None
+    return {
+        "username": username,
+        "role": user.get("role", "user"),
+        "created": user.get("created", ""),
+        "password_changed": user.get("password_changed", False),
+    }
+
+
+def list_users() -> list[dict]:
+    users = load_users()
+    return [
+        {
+            "username": uname,
+            "role": udata.get("role", "user"),
+            "created": udata.get("created", ""),
+            "password_changed": udata.get("password_changed", False),
+        }
+        for uname, udata in users.items()
+    ]
+
+
+def is_admin(username: str) -> bool:
+    users = load_users()
+    user = users.get(username)
+    return user is not None and user.get("role") == "admin"
 
 
 # ─── Session 管理 ──────────────────────────────────────
