@@ -1,26 +1,32 @@
-"""认证模块：密码、用户、Session、速率限制"""
+"""认证模块：密码、用户、Session 加密存储、速率限制、审计日志"""
 
+import json
+import base64
 import os
 import time
 import hmac
 import hashlib
-import base64
-import secrets
-import logging
 import threading
 from datetime import datetime
-from typing import Optional
+from pathlib import Path
 
-from .config import (
-    USERS_FILE,
-    SESSIONS_FILE,
-    RATE_LIMIT_FILE,
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+import logging
+
+from app.crypto import get_or_create_master_key
+from app.config import (
     SESSION_TIMEOUT,
     MAX_LOGIN_ATTEMPTS,
     LOGIN_LOCKOUT_SECONDS,
     RATE_LIMIT_WINDOW,
     RATE_LIMIT_MAX,
     PBKDF2_ITERATIONS,
+    USERS_FILE,
+    AUDIT_FILE,
+    RATE_LIMIT_FILE,
+    SESSIONS_FILE,
+    DEFAULT_PASSWORD,
     safe_chmod,
 )
 
@@ -39,17 +45,11 @@ def verify_password(password: str, hashed: str) -> bool:
     try:
         raw = base64.b64decode(hashed)
         salt, stored_hash = raw[:16], raw[16:]
-        # 尝试当前迭代次数
-        pwd_hash = hashlib.pbkdf2_hmac(
-            "sha256", password.encode(), salt, PBKDF2_ITERATIONS
-        )
+        pwd_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ITERATIONS)
         if hmac.compare_digest(pwd_hash, stored_hash):
             return True
-        # 兼容旧迭代次数（100000），用于平滑迁移
         if PBKDF2_ITERATIONS != 100000:
-            pwd_hash_old = hashlib.pbkdf2_hmac(
-                "sha256", password.encode(), salt, 100000
-            )
+            pwd_hash_old = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
             if hmac.compare_digest(pwd_hash_old, stored_hash):
                 return True
         return False
@@ -57,26 +57,28 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 
+# ─── JSON 辅助 ─────────────────────────────────────────
+
+
+def _load_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _save_json(path: Path, data: dict) -> None:
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    safe_chmod(path, 0o600)
+
+
 # ─── 文件锁 ────────────────────────────────────────────
 
 _file_locks: dict[str, threading.Lock] = {}
 _file_locks_lock = threading.Lock()
-_LOCK_TTL = 3600  # 锁对象 TTL 1小时
-_lock_last_used: dict[str, float] = {}
 
 
 def _get_lock(name: str) -> threading.Lock:
     with _file_locks_lock:
-        now = time.time()
-        # 清理过期锁
-        expired = [k for k, v in _lock_last_used.items() if now - v > _LOCK_TTL]
-        for k in expired:
-            _file_locks.pop(k, None)
-            _lock_last_used.pop(k, None)
-
         if name not in _file_locks:
             _file_locks[name] = threading.Lock()
-        _lock_last_used[name] = now
         return _file_locks[name]
 
 
@@ -88,15 +90,13 @@ def load_users() -> dict:
     with lock:
         if USERS_FILE.exists():
             users = _load_json(USERS_FILE)
-            # 迁移：为旧用户添加默认角色
             for uname, udata in users.items():
                 if "role" not in udata:
                     udata["role"] = "admin" if uname == "admin" else "user"
-            _save_json(USERS_FILE, users, locked=True)
             return users
         default_users = {
             "admin": {
-                "password_hash": hash_password(_get_default_password()),
+                "password_hash": hash_password(DEFAULT_PASSWORD),
                 "created": datetime.now().isoformat(),
                 "password_changed": False,
                 "role": "admin",
@@ -104,12 +104,6 @@ def load_users() -> dict:
         }
         _save_json(USERS_FILE, default_users)
         return default_users
-
-
-def _get_default_password() -> str:
-    from .config import DEFAULT_PASSWORD
-
-    return DEFAULT_PASSWORD
 
 
 def save_users(users: dict) -> None:
@@ -136,7 +130,7 @@ def create_user(username: str, password: str, role: str = "user") -> bool:
             "password_changed": True,
             "role": role,
         }
-        _save_json(USERS_FILE, users, locked=True)
+        _save_json(USERS_FILE, users)
     return True
 
 
@@ -149,7 +143,7 @@ def delete_user(username: str) -> bool:
         if username not in users:
             return False
         del users[username]
-        _save_json(USERS_FILE, users, locked=True)
+        _save_json(USERS_FILE, users)
     return True
 
 
@@ -166,21 +160,8 @@ def update_user(username: str, **kwargs) -> bool:
         if username not in users:
             return False
         users[username].update(updates)
-        _save_json(USERS_FILE, users, locked=True)
+        _save_json(USERS_FILE, users)
     return True
-
-
-def get_user_info(username: str) -> Optional[dict]:
-    users = load_users()
-    user = users.get(username)
-    if not user:
-        return None
-    return {
-        "username": username,
-        "role": user.get("role", "user"),
-        "created": user.get("created", ""),
-        "password_changed": user.get("password_changed", False),
-    }
 
 
 def list_users() -> list[dict]:
@@ -202,26 +183,112 @@ def is_admin(username: str) -> bool:
     return user is not None and user.get("role") == "admin"
 
 
-# ─── Session 管理 ──────────────────────────────────────
+def sanitize_input(text: str, max_length: int = 10000) -> str:
+    if not text:
+        return ""
+    return text.strip()[:max_length]
+
+
+# ─── 会话加密和解密辅助 ────────────────────────────────────────
+
+_session_key: bytes | None = None
+
+
+def _derive_session_key() -> bytes:
+    global _session_key
+    if _session_key is None:
+        master_key = get_or_create_master_key()
+        _session_key = hmac.new(master_key, b"diary-session-v1", hashlib.sha256).digest()
+    return _session_key
+
+
+def _encrypt_session(session_data: dict, session_key: bytes) -> str:
+    """加密会话数据"""
+    aesgcm = AESGCM(session_key)
+    nonce = os.urandom(12)
+    data = json.dumps(session_data, ensure_ascii=False).encode("utf-8")
+    ciphertext = aesgcm.encrypt(nonce, data, None)
+    return base64.b64encode(nonce + ciphertext).decode()
+
+
+def _decrypt_session(encrypted: str, session_key: bytes) -> dict:
+    """解密会话数据"""
+    try:
+        raw = base64.b64decode(encrypted)
+        if len(raw) < 28:
+            raise ValueError("密文过短")
+        nonce, ciphertext = raw[:12], raw[12:]
+        aesgcm = AESGCM(session_key)
+        data = aesgcm.decrypt(nonce, ciphertext, None)
+        return json.loads(data.decode("utf-8"))
+    except Exception as e:
+        logger.warning(f"会话解密失败: {e}")
+        return {}
+
+
+# ─── 文件锁 ────────────────────────────────────────────
+
+_session_locks: dict[str, threading.RLock] = {}
+_session_locks_lock = threading.Lock()
+
+
+def _get_session_lock(name: str) -> threading.RLock:
+    with _session_locks_lock:
+        if name not in _session_locks:
+            _session_locks[name] = threading.RLock()
+        return _session_locks[name]
+
+
+def _load_sessions_data() -> dict:
+    if not _session_file.exists():
+        return {}
+    try:
+        encrypted_data = _session_file.read_text(encoding="utf-8")
+        session_key = _derive_session_key()
+        return _decrypt_session(encrypted_data, session_key)
+    except Exception as e:
+        logger.warning(f"加载加密会话失败: {e}")
+        return {}
+
+
+def _save_sessions_data(sessions: dict) -> None:
+    try:
+        session_key = _derive_session_key()
+        encrypted = _encrypt_session(sessions, session_key)
+        _session_file.write_text(encrypted, encoding="utf-8")
+        if os.name != "nt":
+            _session_file.chmod(0o600)
+    except Exception as e:
+        logger.error(f"保存加密会话失败: {e}")
+        raise
+
+
+# ─── 会话存储 ─────────────────────────────────────────────────
+
+_session_file = SESSIONS_FILE
 
 
 def load_sessions() -> dict:
-    lock = _get_lock("sessions")
+    """加载加密会话（外部调用时自行加锁）"""
+    lock = _get_session_lock("sessions")
     with lock:
-        return _load_json(SESSIONS_FILE) if SESSIONS_FILE.exists() else {}
+        return _load_sessions_data()
 
 
 def save_sessions(sessions: dict) -> None:
-    lock = _get_lock("sessions")
+    """保存加密会话（外部调用时自行加锁）"""
+    lock = _get_session_lock("sessions")
     with lock:
-        _save_json(SESSIONS_FILE, sessions)
+        _save_sessions_data(sessions)
+        logger.info(f"保存了 {len(sessions)} 个加密会话")
 
 
 def create_session(username: str, ip: str = "unknown") -> str:
-    token = secrets.token_urlsafe(32)
-    lock = _get_lock("sessions")
+    """创建新会话"""
+    lock = _get_session_lock("sessions")
     with lock:
-        sessions = _load_json(SESSIONS_FILE) if SESSIONS_FILE.exists() else {}
+        sessions = _load_sessions_data()
+        token = os.urandom(32).hex()
         now = time.time()
         sessions[token] = {
             "username": username,
@@ -229,52 +296,53 @@ def create_session(username: str, ip: str = "unknown") -> str:
             "last_activity": now,
             "ip": ip,
         }
-        _save_json(SESSIONS_FILE, sessions, locked=True)
+        _save_sessions_data(sessions)
     return token
 
 
-def validate_session(token: str) -> Optional[str]:
+def validate_session(token: str) -> str | None:
+    """验证会话，返回用户名或 None"""
     if not token:
         return None
-    lock = _get_lock("sessions")
+    lock = _get_session_lock("sessions")
     with lock:
-        sessions = _load_json(SESSIONS_FILE) if SESSIONS_FILE.exists() else {}
+        sessions = _load_sessions_data()
         session = sessions.get(token)
         if not session:
             return None
         if time.time() - session["last_activity"] > SESSION_TIMEOUT:
             del sessions[token]
-            _save_json(SESSIONS_FILE, sessions, locked=True)
+            _save_sessions_data(sessions)
             return None
         session["last_activity"] = time.time()
-        _save_json(SESSIONS_FILE, sessions, locked=True)
+        _save_sessions_data(sessions)
         return session["username"]
 
 
 def invalidate_session(token: str) -> None:
-    lock = _get_lock("sessions")
+    """使会话失效"""
+    lock = _get_session_lock("sessions")
     with lock:
-        sessions = _load_json(SESSIONS_FILE) if SESSIONS_FILE.exists() else {}
+        sessions = _load_sessions_data()
         sessions.pop(token, None)
-        _save_json(SESSIONS_FILE, sessions, locked=True)
+        _save_sessions_data(sessions)
 
 
-# ─── JSON 辅助 ─────────────────────────────────────────
-
-
-def _load_json(path) -> dict:
-    import json
-
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _save_json(path, data: dict, locked: bool = False) -> None:
-    import json
-
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    if not locked:
-        safe_chmod(path, 0o600)
-
+def cleanup_expired_sessions() -> None:
+    """清理过期会话"""
+    lock = _get_session_lock("sessions")
+    with lock:
+        sessions = _load_sessions_data()
+        now = time.time()
+        expired_tokens = [
+            token for token, session in sessions.items()
+            if now - session["last_activity"] > SESSION_TIMEOUT
+        ]
+        for token in expired_tokens:
+            del sessions[token]
+        if expired_tokens:
+            _save_sessions_data(sessions)
+            logger.info(f"清理了 {len(expired_tokens)} 个过期会话")
 
 # ─── 速率限制（内存化 + 定时刷盘）───────────────────────
 
@@ -286,11 +354,12 @@ _rate_limit_last_flush = 0.0
 
 def _load_rate_limits() -> None:
     global _rate_limit_mem
+    _rate_limit_mem = {}
     try:
         if RATE_LIMIT_FILE.exists():
-            _rate_limit_mem = _load_json(RATE_LIMIT_FILE)
+            _rate_limit_mem.update(_load_json(RATE_LIMIT_FILE))
     except Exception:
-        _rate_limit_mem = {}
+        pass
 
 
 def _flush_rate_limits() -> None:
@@ -300,17 +369,13 @@ def _flush_rate_limits() -> None:
         return
     _rate_limit_last_flush = now
     try:
-        import json
-
         RATE_LIMIT_FILE.write_text(json.dumps(_rate_limit_mem), encoding="utf-8")
     except Exception:
         pass
 
 
 def _cleanup_expired(now: float, window: float) -> None:
-    expired = [
-        k for k, v in _rate_limit_mem.items() if now - v.get("start", 0) > window
-    ]
+    expired = [k for k, v in _rate_limit_mem.items() if now - v.get("start", 0) > window]
     for k in expired:
         del _rate_limit_mem[k]
 
@@ -349,7 +414,6 @@ def check_login_limit(client_ip: str) -> bool:
 
 # ─── 审计日志 ──────────────────────────────────────────
 
-from .config import AUDIT_FILE
 
 _audit_lock = threading.Lock()
 
@@ -365,10 +429,15 @@ def audit_log(action: str, username: str, detail: str = "", ip: str = "") -> Non
     username = _sanitize_log_field(username)
     detail = _sanitize_log_field(detail)
     ip = _sanitize_log_field(ip)
-    # 使用 | 分隔符替代空格，避免 detail 含空格时解析错乱
-    log_entry = (
-        f"[{timestamp}]|user={username}|action={action}|detail={detail}|ip={ip}\n"
-    )
+    log_entry = json.dumps({
+        "timestamp": timestamp,
+        "user": username,
+        "action": action,
+        "detail": detail,
+        "ip": ip,
+    }, ensure_ascii=False) + "\n"
     with _audit_lock:
         with open(AUDIT_FILE, "a", encoding="utf-8") as f:
             f.write(log_entry)
+
+

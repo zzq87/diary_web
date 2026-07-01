@@ -7,7 +7,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from .config import MASTER_KEY_FILE, SECRET_KEY, safe_chmod, logger
+from .config import MASTER_KEY_FILE, SECRET_KEY, safe_chmod
 
 logger = logging.getLogger("diary.crypto")
 

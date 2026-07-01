@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>📝 本地日记本</title>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer onerror="window.markedFallback=true"></script>
+
     <style>
         :root {
             --bg: #f7f5f0;
@@ -372,13 +372,11 @@
         .editor-actions { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
 
         .editor-body {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
             min-height: 520px;
         }
 
         .editor-textarea {
-            width: 100%; height: 100%; min-height: 520px;
+            width: 100%; min-height: 520px;
             padding: 1.5rem;
             border: none; resize: none;
             font-family: "JetBrains Mono", "Fira Code", "SF Mono", Consolas, monospace;
@@ -389,44 +387,6 @@
             background: var(--card);
         }
         .editor-textarea::placeholder { color: #c0bcb4; }
-
-        .preview-pane {
-            padding: 1.5rem;
-            border-left: 1px solid var(--border-light);
-            overflow-y: auto;
-            background: #fcfbf9;
-        }
-
-        .preview-pane h1 { font-size: 1.6rem; margin-bottom: 0.75rem; color: var(--primary-dark); font-weight: 700; }
-        .preview-pane h2 { font-size: 1.3rem; margin: 1.25rem 0 0.6rem; font-weight: 600; }
-        .preview-pane h3 { font-size: 1.1rem; margin: 1rem 0 0.5rem; font-weight: 600; }
-        .preview-pane p { margin-bottom: 0.75rem; color: var(--text-secondary); line-height: 1.7; }
-        .preview-pane code {
-            background: #ede9e2; padding: 0.15rem 0.4rem;
-            border-radius: 4px; font-family: "SF Mono", Consolas, monospace;
-            font-size: 0.85em;
-        }
-        .preview-pane pre {
-            background: #f5f3ef; padding: 1rem;
-            border-radius: var(--radius-sm); overflow-x: auto;
-            margin-bottom: 1rem; border: 1px solid var(--border-light);
-        }
-        .preview-pane pre code { background: none; padding: 0; border-radius: 0; }
-        .preview-pane ul, .preview-pane ol { margin-left: 1.25rem; margin-bottom: 0.75rem; color: var(--text-secondary); }
-        .preview-pane li { margin-bottom: 0.25rem; }
-        .preview-pane a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
-        .preview-pane img { max-width: 100%; border-radius: var(--radius-sm); margin: 1rem 0; }
-        .preview-pane blockquote {
-            border-left: 3px solid var(--primary-light);
-            padding: 0.5rem 1rem; margin: 1rem 0;
-            color: var(--text-secondary);
-            background: var(--primary-bg);
-            border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
-        }
-        .preview-pane table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
-        .preview-pane th, .preview-pane td { border: 1px solid var(--border); padding: 0.5rem 0.75rem; text-align: left; }
-        .preview-pane th { background: var(--bg-soft); font-weight: 600; font-size: 0.85rem; }
-        .preview-pane hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 
         .autosave-indicator {
             font-size: 0.75rem;
@@ -662,9 +622,8 @@
 
         /* ─── Responsive ─── */
         @media (max-width: 1024px) {
-            .editor-body { grid-template-columns: 1fr; min-height: auto; }
+            .editor-body { min-height: auto; }
             .editor-textarea { min-height: 320px; }
-            .preview-pane { border-left: none; border-top: 1px solid var(--border-light); }
             .nav-links { margin: 0 0.5rem; }
             .search-bar { width: 160px; }
             .search-bar:focus-within { width: 200px; }
@@ -699,9 +658,6 @@
             .editor-actions { justify-content: flex-start; }
             .editor-textarea { padding: 1rem; min-height: 280px; }
             .btn { padding: 0.5rem 0.75rem; font-size: 0.8rem; }
-
-            .preview-pane { display: none; max-height: 50vh; min-height: 200px; }
-            .preview-pane.show { display: block; }
 
             .calendar { padding: 1rem; }
             .calendar-grid { min-width: auto; }
@@ -884,23 +840,13 @@
                         <input type="date" id="editorDate" class="date-input">
                         <div class="editor-actions">
                             <span class="autosave-indicator" id="autosaveIndicator"></span>
-                            <button class="btn btn-secondary" id="previewBtn">预览</button>
                             <button class="btn btn-secondary" id="downloadBtn">⬇ 导出</button>
                             <button class="btn btn-primary" id="saveBtn">💾 保存</button>
                             <button class="btn btn-danger" id="deleteBtn">🗑️ 删除</button>
                         </div>
                     </div>
                     <div class="editor-body">
-                        <textarea id="editorContent" class="editor-textarea" placeholder="今天发生了什么？
-
-支持 Markdown 格式：
-# 标题
-**粗体**
-- 列表项
-`代码`"></textarea>
-                        <div class="preview-pane" id="previewPane">
-                            <p style="color: #999;">Markdown 预览将在这里显示...</p>
-                        </div>
+                        <textarea id="editorContent" class="editor-textarea" placeholder="今天发生了什么？"></textarea>
                     </div>
                 </div>
             </div>
@@ -1179,17 +1125,6 @@
             document.getElementById('passwordWarning').classList.remove('show');
         }
 
-        // ─── marked.js 加载检测（3秒超时降级）──────────
-        let markedReady = false;
-        setTimeout(() => {
-            if (typeof marked === 'undefined') {
-                console.warn('marked.js 加载失败，使用降级渲染');
-                window.markedFallback = true;
-            } else {
-                markedReady = true;
-            }
-        }, 3000);
-
         // ─── 事件绑定（替代 onclick 内联）──────────────
         function bindEvents() {
             // 登录表单
@@ -1256,16 +1191,9 @@
             // 编辑器操作
             document.getElementById('saveBtn').addEventListener('click', saveDiary);
             document.getElementById('deleteBtn').addEventListener('click', deleteDiary);
-            document.getElementById('previewBtn').addEventListener('click', previewMarkdown);
             document.getElementById('downloadBtn').addEventListener('click', downloadDiary);
 
-            // 实时预览（移动端仅在预览可见时更新）
-            document.getElementById('editorContent').addEventListener('input', () => {
-                const isMobile = window.innerWidth <= 768;
-                if (!isMobile || previewVisible) {
-                    previewMarkdown();
-                }
-            });
+
 
             // 密码修改
             document.getElementById('changePasswordBtn').addEventListener('click', changePassword);
@@ -1578,7 +1506,6 @@
 
             const data = await res.json();
             document.getElementById('editorContent').value = data.content;
-            previewMarkdown();
         }
 
         // ─── 保存日记 ──────────────────────────────────
@@ -1620,62 +1547,6 @@
             if (res) {
                 showToast('🗑️ 日记已删除');
                 document.getElementById('editorContent').value = '';
-                previewMarkdown();
-            }
-        }
-
-        // ─── Markdown 预览（使用 marked.js + sanitize）──
-        function sanitizeHtml(html) {
-            // 移除危险标签和属性
-            const dangerousTags = /<(script|iframe|object|embed|form|input|select|textarea|button|link|meta|style|video|audio|source|base|applet|frame|frameset)[^>]*>[\s\S]*?<\/\1>/gi;
-            const dangerousAttrs = /\s(on\w+|formaction|action|href)\s*=\s*["'][^"']*["']/gi;
-            const javascriptHrefs = /href\s*=\s*["']javascript:[^"']*["']/gi;
-
-            html = html.replace(dangerousTags, '');
-            html = html.replace(dangerousAttrs, '');
-            html = html.replace(javascriptHrefs, 'href="#"');
-            return html;
-        }
-
-        // 移动端预览切换状态
-        let previewVisible = false;
-
-        function previewMarkdown() {
-            const preview = document.getElementById('previewPane');
-            const isMobile = window.innerWidth <= 768;
-            
-            // 移动端：切换显示/隐藏
-            if (isMobile) {
-                previewVisible = !previewVisible;
-                preview.classList.toggle('show', previewVisible);
-                if (!previewVisible) return;
-            }
-            
-            const content = document.getElementById('editorContent').value;
-            if (!content.trim()) {
-                preview.innerHTML = '<p style="color: #999;">Markdown 预览将在这里显示...</p>';
-                return;
-            }
-
-            if (markedReady) {
-                // 使用 marked.js 渲染 + sanitize
-                const rawHtml = marked.parse(content);
-                preview.innerHTML = sanitizeHtml(rawHtml);
-            } else {
-                // 降级：基础正则替换（已 escapeHtml 所以安全）
-                let html = escapeHtml(content);
-                html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-                html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-                html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-                html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-                html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-                html = html.replace(/`(.+?)`/g, '<code>$1</code>');
-                html = html.replace(/```([\s\S]+?)```/g, '<pre><code>$1</code></pre>');
-                html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-                html = html.replace(/(<li>[\s\S]*<\/li>)/g, '<ul>$1</ul>');
-                html = html.replace(/\n\n/g, '</p><p>');
-                html = '<p>' + html + '</p>';
-                preview.innerHTML = html;
             }
         }
 
@@ -2045,7 +1916,6 @@
                     const draft = localStorage.getItem(`draft_${date}`);
                     if (draft && !textarea.value) {
                         textarea.value = draft;
-                        previewMarkdown();
                         showToast('📝 已恢复上次草稿');
                     }
                 }

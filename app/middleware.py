@@ -1,7 +1,6 @@
 """中间件模块：安全头、认证装饰器"""
 
 from functools import wraps
-
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
@@ -9,6 +8,7 @@ from .auth import validate_session, is_admin
 
 
 async def security_headers_middleware(request: Request, call_next):
+    """安全响应头中间件"""
     response = await call_next(request)
 
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -17,11 +17,10 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
 
-    # CSP — 允许内联样式（前端多处使用）和 marked.js CDN
-    # 内联脚本仅用于单页应用入口，实际逻辑在外部 JS 中更安全
+    # CSP — static/index.html 使用大量内联脚本，需要 unsafe-inline
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
         "font-src 'self'; "
@@ -37,6 +36,7 @@ async def security_headers_middleware(request: Request, call_next):
 
 
 def require_auth(func):
+    """认证装饰器"""
     @wraps(func)
     async def wrapper(request: Request, *args, **kwargs):
         token = request.headers.get("X-Auth-Token", "")
@@ -53,12 +53,13 @@ def require_auth(func):
 
         request.state.username = username
         request.state.token = token
-        return await func(request, *args, **kwargs)
+        return await func(*args, request=request, **kwargs)
 
     return wrapper
 
 
 def require_admin(func):
+    """管理员权限装饰器"""
     @wraps(func)
     async def wrapper(request: Request, *args, **kwargs):
         token = request.headers.get("X-Auth-Token", "")
@@ -81,6 +82,6 @@ def require_admin(func):
 
         request.state.username = username
         request.state.token = token
-        return await func(request, *args, **kwargs)
+        return await func(*args, request=request, **kwargs)
 
     return wrapper
