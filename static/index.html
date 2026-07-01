@@ -1399,6 +1399,9 @@
             const headers = {
                 ...options.headers
             };
+            if (authToken) {
+                headers['X-Auth-Token'] = authToken;
+            }
 
             if (options.body && typeof options.body === 'object') {
                 headers['Content-Type'] = 'application/json';
@@ -1557,7 +1560,7 @@
             const res = await apiFetch(`/api/calendar/${currentYear}/${currentMonth}`);
             if (res) {
                 const data = await res.json();
-                diaryDates = new Set(data.dates);
+                diaryDates = new Set(data.dates.filter(d => d.has_entry).map(d => d.day));
             }
 
             const grid = document.getElementById('calendarGrid');
@@ -1687,20 +1690,17 @@
             }
 
             tbody.innerHTML = data.entries.map(entry => {
-                // 使用 | 分隔符解析（后端已改为 | 分隔）
-                const parts = entry.split('|');
-                const time = (parts[0] || '').replace('[', '').replace(']', '').trim();
-                const user = (parts[1] || '').replace('user=', '').trim();
-                const action = (parts[2] || '').replace('action=', '').trim();
-                const detail = (parts[3] || '').replace('detail=', '').trim();
-                const ip = (parts[4] || '').replace('ip=', '').trim();
-                return `<tr>
-                    <td>${escapeHtml(time)}</td>
-                    <td>${escapeHtml(user)}</td>
-                    <td>${escapeHtml(action)}</td>
-                    <td>${escapeHtml(detail)}</td>
-                    <td>${escapeHtml(ip)}</td>
-                </tr>`;
+                const match = entry.match(/^\[(.*?)\]\s*user=(\S+)\s*action=(\S+)\s*detail=(.*?)\s*ip=(\S*)$/);
+                if (match) {
+                    return `<tr>
+                        <td>${escapeHtml(match[1])}</td>
+                        <td>${escapeHtml(match[2])}</td>
+                        <td>${escapeHtml(match[3])}</td>
+                        <td>${escapeHtml(match[4])}</td>
+                        <td>${escapeHtml(match[5])}</td>
+                    </tr>`;
+                }
+                return `<tr><td colspan="5">${escapeHtml(entry)}</td></tr>`;
             }).join('');
         }
 
@@ -1968,13 +1968,25 @@
                     <td>${u.password_changed ? '✅ 已设置' : '⚠️ 默认密码'}</td>
                     <td>
                         <div class="user-actions">
-                            <button class="btn btn-secondary" onclick="openUserModal('${escapeHtml(u.username)}')">编辑</button>
-                            <button class="btn btn-warning" onclick="openResetPasswordModal('${escapeHtml(u.username)}')">重置密码</button>
-                            ${u.username !== 'admin' ? `<button class="btn btn-danger" onclick="deleteUser('${escapeHtml(u.username)}')">删除</button>` : ''}
+                            <button class="btn btn-secondary user-edit-btn" data-username="${escapeHtml(u.username)}">编辑</button>
+                            <button class="btn btn-warning user-reset-pwd-btn" data-username="${escapeHtml(u.username)}">重置密码</button>
+                            ${u.username !== 'admin' ? `<button class="btn btn-danger user-delete-btn" data-username="${escapeHtml(u.username)}">删除</button>` : ''}
                         </div>
                     </td>
                 </tr>
             `).join('');
+
+            // 事件委托：编辑、重置密码、删除
+            tbody.addEventListener('click', (e) => {
+                const target = e.target;
+                if (target.classList.contains('user-edit-btn')) {
+                    openUserModal(target.dataset.username);
+                } else if (target.classList.contains('user-reset-pwd-btn')) {
+                    openResetPasswordModal(target.dataset.username);
+                } else if (target.classList.contains('user-delete-btn')) {
+                    deleteUser(target.dataset.username);
+                }
+            });
         }
 
         function openUserModal(username = null) {

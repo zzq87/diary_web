@@ -35,29 +35,28 @@ def get_diary_path(date_str: str) -> Path:
     return path
 
 
+# ─── 解密辅助 ──────────────────────────────────────────
+
+def _decrypt_content(raw_content: str) -> str:
+    if ENCRYPTION_ENABLED and raw_content.startswith("ENC:"):
+        key = get_or_create_master_key()
+        encrypted = raw_content[4:]
+        return decrypt_data(encrypted, key).decode("utf-8")
+    return raw_content
+
+
 # ─── 异步读写 ──────────────────────────────────────────
 
 async def read_diary_file(path: Path) -> str:
     async with aiofiles.open(path, "r", encoding="utf-8") as f:
         raw_content = await f.read()
-    if ENCRYPTION_ENABLED and raw_content.startswith("ENC:"):
-        key = get_or_create_master_key()
-        encrypted = raw_content[4:]
-        content = decrypt_data(encrypted, key)
-        return content.decode("utf-8")
-    return raw_content
+    return _decrypt_content(raw_content)
 
 
 async def read_diary_preview(path: Path, max_len: int = 200) -> str:
     async with aiofiles.open(path, "r", encoding="utf-8") as f:
         raw_content = await f.read()
-    if ENCRYPTION_ENABLED and raw_content.startswith("ENC:"):
-        key = get_or_create_master_key()
-        encrypted = raw_content[4:]
-        content = decrypt_data(encrypted, key)
-        content_str = content.decode("utf-8")
-        return content_str[:max_len]
-    return raw_content[:max_len]
+    return _decrypt_content(raw_content)[:max_len]
 
 
 async def write_diary_file(path: Path, content: str) -> None:
@@ -127,17 +126,21 @@ def calculate_streak() -> int:
     if now - _streak_cache["computed_at"] < _streak_cache["ttl"]:
         return _streak_cache["value"]
 
+    existing_dates: set[str] = set()
+    for filepath in _get_diary_files():
+        path = Path(filepath)
+        year_str = path.parent.parent.name
+        month_str = path.parent.name
+        day_str = path.stem
+        existing_dates.add(f"{year_str}-{month_str}-{day_str}")
+
     streak = 0
     today = datetime.now()
     for i in range(365):
         date = today - timedelta(days=i)
-        try:
-            path = get_diary_path(date.strftime("%Y-%m-%d"))
-            if path.exists():
-                streak += 1
-            else:
-                break
-        except ValueError:
+        if date.strftime("%Y-%m-%d") in existing_dates:
+            streak += 1
+        else:
             break
 
     _streak_cache["value"] = streak
@@ -185,12 +188,7 @@ def search_diaries(query: str) -> list[dict]:
 def read_diary_file_sync(path: Path) -> str:
     """同步版本（供搜索索引构建使用）"""
     raw_content = path.read_text(encoding="utf-8")
-    if ENCRYPTION_ENABLED and raw_content.startswith("ENC:"):
-        key = get_or_create_master_key()
-        encrypted = raw_content[4:]
-        content = decrypt_data(encrypted, key)
-        return content.decode("utf-8")
-    return raw_content
+    return _decrypt_content(raw_content)
 
 
 # ─── 统计 ──────────────────────────────────────────────
@@ -265,10 +263,15 @@ def get_stats() -> dict:
 
 # ─── 日历 ──────────────────────────────────────────────
 
-def get_calendar_month(year: int, month: int) -> list[int]:
+def get_calendar_month(year: int, month: int) -> list[dict]:
     pattern = str(DIARY_DIR) + f"/{year:04d}/{month:02d}/*.md"
-    dates = []
+    dates_with_entries = set()
     for filepath in glob.glob(pattern):
         path = Path(filepath)
-        dates.append(int(path.stem))
-    return sorted(dates)
+        dates_with_entries.add(int(path.stem))
+    from calendar import monthrange
+    _, days_in_month = monthrange(year, month)
+    return [
+        {"day": d, "has_entry": d in dates_with_entries}
+        for d in range(1, days_in_month + 1)
+    ]

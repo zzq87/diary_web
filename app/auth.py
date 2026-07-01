@@ -90,9 +90,13 @@ def load_users() -> dict:
     with lock:
         if USERS_FILE.exists():
             users = _load_json(USERS_FILE)
+            migrated = False
             for uname, udata in users.items():
                 if "role" not in udata:
                     udata["role"] = "admin" if uname == "admin" else "user"
+                    migrated = True
+            if migrated:
+                _save_json(USERS_FILE, users)
             return users
         default_users = {
             "admin": {
@@ -181,12 +185,6 @@ def is_admin(username: str) -> bool:
     users = load_users()
     user = users.get(username)
     return user is not None and user.get("role") == "admin"
-
-
-def sanitize_input(text: str, max_length: int = 10000) -> str:
-    if not text:
-        return ""
-    return text.strip()[:max_length]
 
 
 # ─── 会话加密和解密辅助 ────────────────────────────────────────
@@ -280,7 +278,6 @@ def save_sessions(sessions: dict) -> None:
     lock = _get_session_lock("sessions")
     with lock:
         _save_sessions_data(sessions)
-        logger.info(f"保存了 {len(sessions)} 个加密会话")
 
 
 def create_session(username: str, ip: str = "unknown") -> str:
@@ -301,7 +298,7 @@ def create_session(username: str, ip: str = "unknown") -> str:
 
 
 def validate_session(token: str) -> str | None:
-    """验证会话，返回用户名或 None"""
+    """验证会话，返回用户名或 None（不触发磁盘写入）"""
     if not token:
         return None
     lock = _get_session_lock("sessions")
@@ -315,7 +312,21 @@ def validate_session(token: str) -> str | None:
             _save_sessions_data(sessions)
             return None
         session["last_activity"] = time.time()
-        _save_sessions_data(sessions)
+        return session["username"]
+
+
+def peek_session(token: str) -> str | None:
+    """只读验证会话，不更新 last_activity，不落盘"""
+    if not token:
+        return None
+    lock = _get_session_lock("sessions")
+    with lock:
+        sessions = _load_sessions_data()
+        session = sessions.get(token)
+        if not session:
+            return None
+        if time.time() - session["last_activity"] > SESSION_TIMEOUT:
+            return None
         return session["username"]
 
 

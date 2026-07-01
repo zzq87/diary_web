@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, Depends
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, StreamingResponse
 
 from .config import (
@@ -30,6 +30,7 @@ from .auth import (
     hash_password,
     create_session,
     validate_session,
+    peek_session,
     invalidate_session,
     check_rate_limit,
     check_login_limit,
@@ -59,7 +60,7 @@ from .diary import (
     get_calendar_month,
 )
 from .crypto import get_or_create_master_key
-from .middleware import security_headers_middleware, require_auth, require_admin
+from .middleware import security_headers_middleware, require_auth, require_admin, rate_limit
 from .errors import (
     AppError,
     AuthError,
@@ -190,7 +191,7 @@ def _register_routes(app: FastAPI) -> None:
     async def logout(request: Request):
         token = request.headers.get("X-Auth-Token", "") or request.cookies.get("diary_token", "")
         if token:
-            username = validate_session(token) or "unknown"
+            username = peek_session(token) or "unknown"
             invalidate_session(token)
             audit_log("LOGOUT", username, "", request.client.host or "unknown")
 
@@ -296,7 +297,7 @@ def _register_routes(app: FastAPI) -> None:
         raise HTTPException(status_code=404, detail="用户不存在")
 
     # ─── 日记相关 ──────────────────────────────────────
-    @app.get("/api/diaries", response_model=DiariesResponse)
+    @app.get("/api/diaries", response_model=DiariesResponse, dependencies=[Depends(rate_limit("diaries"))])
     @require_auth
     async def list_diaries(request: Request, limit: int = 30, offset: int = 0):
         username = request.state.username
@@ -397,7 +398,7 @@ def _register_routes(app: FastAPI) -> None:
 
         return {"status": "ok", "date": date}
 
-    @app.get("/api/search", response_model=SearchResponse)
+    @app.get("/api/search", response_model=SearchResponse, dependencies=[Depends(rate_limit("search"))])
     @require_auth
     async def search(q: str, request: Request):
         username = request.state.username
@@ -437,20 +438,18 @@ def _register_routes(app: FastAPI) -> None:
         lines = AUDIT_FILE.read_text(encoding="utf-8").strip().split("\n")
         entries = []
         for line in lines[-limit:]:
-            if line.strip():
-                try:
-                    entry = json.loads(line)
-                    # 格式化为字符串显示，保持前端兼容
-                    formatted = f"[{entry.get('timestamp', '')}] user={entry.get('user', '')} action={entry.get('action', '')} detail={entry.get('detail', '')} ip={entry.get('ip', '')}"
-                    entries.append(formatted)
-                except json.JSONDecodeError:
-                    # 兼容旧格式
-                    entries.append(line)
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+                entries.append(f"[{entry.get('timestamp', '')}] user={entry.get('user', '')} action={entry.get('action', '')} detail={entry.get('detail', '')} ip={entry.get('ip', '')}")
+            except json.JSONDecodeError:
+                entries.append(line)
 
         audit_log("VIEW_AUDIT", username, f"limit={limit}", request.client.host or "unknown")
         return {"entries": entries, "total": len(lines)}
 
-    @app.get("/api/backup")
+    @app.get("/api/backup", dependencies=[Depends(rate_limit("backup"))])
     @require_auth
     async def backup(request: Request):
         username = request.state.username
@@ -487,7 +486,7 @@ def _register_routes(app: FastAPI) -> None:
             headers={"Content-Disposition": f'attachment; filename="diary_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}.zip"'},
         )
 
-    @app.post("/api/restore", response_model=RestoreResponse)
+    @app.post("/api/restore", response_model=RestoreResponse, dependencies=[Depends(rate_limit("restore"))])
     @require_auth
     async def restore(request: Request, backup: UploadFile = File(...)):
         username = request.state.username

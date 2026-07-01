@@ -24,6 +24,7 @@ def _get_conn() -> sqlite3.Connection:
     if _conn is None:
         _conn = sqlite3.connect(str(_get_db_path()), check_same_thread=False)
         _conn.execute("PRAGMA journal_mode=WAL")
+        _conn.execute("PRAGMA busy_timeout=5000")
         _conn.execute(
             "CREATE VIRTUAL TABLE IF NOT EXISTS diary_index "
             "USING fts5("
