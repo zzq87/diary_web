@@ -3,7 +3,7 @@
 import pytest
 import os
 
-from app.auth import hash_password, verify_password, sanitize_input
+from app.auth import hash_password, verify_password
 
 
 class TestPassword:

@@ -19,8 +19,8 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=2, max_length=32, description="用户名")
-    password: str = Field(min_length=8, max_length=128, description="密码")
-    confirm_password: str = Field(min_length=8, max_length=128, description="确认密码")
+    password: str = Field(min_length=6, max_length=128, description="密码")
+    confirm_password: str = Field(min_length=6, max_length=128, description="确认密码")
 
     @field_validator("username")
     @classmethod
@@ -138,8 +138,13 @@ class StatsResponse(BaseModel):
     encrypted: bool
 
 
+class CalendarDay(BaseModel):
+    day: int
+    has_entry: bool
+
+
 class CalendarResponse(BaseModel):
-    dates: list[int]
+    dates: list[CalendarDay]
 
 
 # ─── 审计日志 ────────────────────────────────────────────
