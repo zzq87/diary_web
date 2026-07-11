@@ -47,7 +47,7 @@ class RateLimitError(AppError):
         super().__init__(message, status_code=429, error_code="RATE_LIMIT")
 
 
-class ValidationError(AppError):
+class DataValidationError(AppError):
     """参数校验错误"""
 
     def __init__(self, message: str = "参数校验失败"):

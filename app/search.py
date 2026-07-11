@@ -1,5 +1,6 @@
 """SQLite FTS5 全文搜索索引模块"""
 
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -101,8 +102,20 @@ def remove_from_index(path: str) -> None:
         conn.commit()
 
 
+_FTS5_SPECIAL = re.compile(r'["*()+\-^]|(?:AND|OR|NOT|NEAR)\b', re.IGNORECASE)
+
+
+def _sanitize_fts5(query: str) -> str:
+    query = _FTS5_SPECIAL.sub("", query).strip()
+    if not query:
+        return ""
+    terms = query.split()
+    return " AND ".join(f'"{t}"' for t in terms)
+
+
 def search(query: str, limit: int = 50) -> list[dict]:
-    if not query.strip():
+    safe_query = _sanitize_fts5(query)
+    if not safe_query:
         return []
     with _conn_lock:
         conn = _get_conn()
@@ -110,7 +123,7 @@ def search(query: str, limit: int = 50) -> list[dict]:
             rows = conn.execute(
                 "SELECT path, date, preview, tags FROM diary_index "
                 "WHERE content MATCH ? ORDER BY rank LIMIT ?",
-                (query, limit),
+                (safe_query, limit),
             ).fetchall()
         except sqlite3.OperationalError:
             return []

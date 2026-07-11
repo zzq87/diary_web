@@ -3,6 +3,9 @@
 import pytest
 import base64
 import os
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
 from app.crypto import encrypt_data, decrypt_data, get_or_create_master_key
 
@@ -46,5 +49,9 @@ class TestCrypto:
             decrypt_data(short, self.key)
 
     def test_get_or_create_master_key_returns_32_bytes(self):
-        key = get_or_create_master_key()
-        assert len(key) == 32
+        with tempfile.TemporaryDirectory() as tmp:
+            key_file = Path(tmp) / "master.key"
+            with patch("app.crypto.MASTER_KEY_FILE", key_file), \
+                 patch("app.crypto.SECRET_KEY", ""):
+                key = get_or_create_master_key()
+                assert len(key) == 32

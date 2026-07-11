@@ -3,11 +3,14 @@
 import json
 import logging
 import asyncio
+import zipfile
+import io
 import tempfile
 import shutil
 from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
+
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, Depends
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, StreamingResponse
@@ -32,11 +35,13 @@ from .auth import (
     validate_session,
     peek_session,
     invalidate_session,
+    cleanup_expired_sessions,
     check_rate_limit,
     check_login_limit,
     audit_log,
     _load_rate_limits,
     _flush_rate_limits,
+    _flush_audit_log,
     create_user,
     delete_user,
     update_user,
@@ -96,6 +101,18 @@ from .schemas import (
 logger = logging.getLogger("diary.api")
 
 
+def _stream_and_cleanup(file_handle, tmp_path: Path):
+    try:
+        while True:
+            chunk = file_handle.read(8192)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        file_handle.close()
+        tmp_path.unlink(missing_ok=True)
+
+
 def create_app() -> FastAPI:
 
     @asynccontextmanager
@@ -109,21 +126,32 @@ def create_app() -> FastAPI:
         audit_log("SYSTEM_START", "system", "server started", "")
 
         flush_task = asyncio.create_task(_periodic_flush())
+        session_cleanup_task = asyncio.create_task(_periodic_session_cleanup())
         yield
 
         flush_task.cancel()
+        session_cleanup_task.cancel()
         try:
             await flush_task
+            await session_cleanup_task
         except asyncio.CancelledError:
             pass
         _flush_rate_limits()
+        _flush_audit_log()
+        search_index.close()
         audit_log("SYSTEM_STOP", "system", "server stopped", "")
         logger.info("日记本服务已关闭")
 
     async def _periodic_flush():
         while True:
-            await asyncio.sleep(10)
+            await asyncio.sleep(30)
             _flush_rate_limits()
+            _flush_audit_log()
+
+    async def _periodic_session_cleanup():
+        while True:
+            await asyncio.sleep(300)
+            cleanup_expired_sessions()
 
     app = FastAPI(
         title="本地日记本",
@@ -147,6 +175,15 @@ def _register_routes(app: FastAPI) -> None:
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         return response
+
+    @app.get("/static/{filepath:path}")
+    async def static_files(filepath: str):
+        full_path = (BASE_DIR / "static" / filepath).resolve()
+        if not str(full_path).startswith(str((BASE_DIR / "static").resolve())):
+            raise HTTPException(status_code=403)
+        if not full_path.exists() or not full_path.is_file():
+            raise HTTPException(status_code=404)
+        return FileResponse(str(full_path))
 
     @app.post("/api/login", response_model=LoginResponse)
     async def login(data: LoginRequest, request: Request):
@@ -453,31 +490,34 @@ def _register_routes(app: FastAPI) -> None:
     @require_auth
     async def backup(request: Request):
         username = request.state.username
-        import zipfile
-        import io
 
         def generate_backup():
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                for filepath in sorted(DIARY_DIR.rglob("*.md")):
-                    rel_path = filepath.relative_to(DIARY_DIR.parent)
-                    zf.write(filepath, rel_path)
+            tmp = tempfile.NamedTemporaryFile(delete=False)
+            try:
+                total = 0
+                with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as zf:
+                    for filepath in sorted(DIARY_DIR.rglob("*.md")):
+                        rel_path = filepath.relative_to(DIARY_DIR.parent)
+                        zf.write(filepath, rel_path)
+                        total += 1
 
-                metadata = {
-                    "created": datetime.now().isoformat(),
-                    "created_by": username,
-                    "total_entries": len(list(DIARY_DIR.rglob("*.md"))),
-                    "encrypted": ENCRYPTION_ENABLED,
-                    "version": "3.0",
-                }
-                zf.writestr("metadata.json", __import__("json").dumps(metadata, ensure_ascii=False, indent=2))
+                    metadata = {
+                        "created": datetime.now().isoformat(),
+                        "created_by": username,
+                        "total_entries": total,
+                        "encrypted": ENCRYPTION_ENABLED,
+                        "version": "3.0",
+                    }
+                    zf.writestr("metadata.json", json.dumps(metadata, ensure_ascii=False, indent=2))
 
-            buf.seek(0)
-            while True:
-                chunk = buf.read(8192)
-                if not chunk:
-                    break
-                yield chunk
+                tmp.close()
+                tmp_path = Path(tmp.name)
+                file_handle = open(tmp_path, "rb")
+                yield from _stream_and_cleanup(file_handle, tmp_path)
+            except Exception:
+                if tmp and Path(tmp.name).exists():
+                    Path(tmp.name).unlink(missing_ok=True)
+                raise
 
         audit_log("BACKUP_CREATED", username, "", request.client.host or "unknown")
         return StreamingResponse(
@@ -490,8 +530,6 @@ def _register_routes(app: FastAPI) -> None:
     @require_auth
     async def restore(request: Request, backup: UploadFile = File(...)):
         username = request.state.username
-        import zipfile
-        import io
 
         if not backup.filename or not backup.filename.endswith(".zip"):
             raise HTTPException(status_code=400, detail="请上传 ZIP 备份文件")
@@ -574,36 +612,38 @@ def _register_routes(app: FastAPI) -> None:
             audit_log("DECRYPT_BACKUP_AUTH_FAIL", username, "", request.client.host or "unknown")
             raise HTTPException(status_code=401, detail="密码错误")
 
-        import zipfile
-        import io
-
         def generate_decrypted_backup():
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                for filepath in sorted(DIARY_DIR.rglob("*.md")):
-                    rel_path = filepath.relative_to(DIARY_DIR.parent)
-                    try:
-                        content = read_diary_file_sync(filepath)
-                        zf.writestr(str(rel_path), content)
-                    except Exception as e:
-                        logger.warning(f"解密失败 {filepath}: {e}")
-                        zf.write(filepath, rel_path)
+            tmp = tempfile.NamedTemporaryFile(delete=False)
+            try:
+                total = 0
+                with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as zf:
+                    for filepath in sorted(DIARY_DIR.rglob("*.md")):
+                        total += 1
+                        rel_path = filepath.relative_to(DIARY_DIR.parent)
+                        try:
+                            content = read_diary_file_sync(filepath)
+                            zf.writestr(str(rel_path), content)
+                        except Exception as e:
+                            logger.warning(f"解密失败 {filepath}: {e}")
+                            zf.write(filepath, rel_path)
 
-                metadata = {
-                    "created": datetime.now().isoformat(),
-                    "created_by": username,
-                    "total_entries": len(list(DIARY_DIR.rglob("*.md"))),
-                    "decrypted": True,
-                    "warning": "此备份包含明文日记，请妥善保管！",
-                }
-                zf.writestr("metadata.json", __import__("json").dumps(metadata, ensure_ascii=False, indent=2))
+                    metadata = {
+                        "created": datetime.now().isoformat(),
+                        "created_by": username,
+                        "total_entries": total,
+                        "decrypted": True,
+                        "warning": "此备份包含明文日记，请妥善保管！",
+                    }
+                    zf.writestr("metadata.json", json.dumps(metadata, ensure_ascii=False, indent=2))
 
-            buf.seek(0)
-            while True:
-                chunk = buf.read(8192)
-                if not chunk:
-                    break
-                yield chunk
+                tmp.close()
+                tmp_path = Path(tmp.name)
+                file_handle = open(tmp_path, "rb")
+                yield from _stream_and_cleanup(file_handle, tmp_path)
+            except Exception:
+                if tmp and Path(tmp.name).exists():
+                    Path(tmp.name).unlink(missing_ok=True)
+                raise
 
         audit_log("DECRYPTED_BACKUP", username, "", request.client.host or "unknown")
         return StreamingResponse(

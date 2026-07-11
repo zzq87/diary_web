@@ -71,23 +71,13 @@ def _save_json(path: Path, data: dict) -> None:
 
 # ─── 文件锁 ────────────────────────────────────────────
 
-_file_locks: dict[str, threading.Lock] = {}
-_file_locks_lock = threading.Lock()
-
-
-def _get_lock(name: str) -> threading.Lock:
-    with _file_locks_lock:
-        if name not in _file_locks:
-            _file_locks[name] = threading.Lock()
-        return _file_locks[name]
-
+_users_lock = threading.Lock()
 
 # ─── 用户管理 ──────────────────────────────────────────
 
 
 def load_users() -> dict:
-    lock = _get_lock("users")
-    with lock:
+    with _users_lock:
         if USERS_FILE.exists():
             users = _load_json(USERS_FILE)
             migrated = False
@@ -111,8 +101,7 @@ def load_users() -> dict:
 
 
 def save_users(users: dict) -> None:
-    lock = _get_lock("users")
-    with lock:
+    with _users_lock:
         _save_json(USERS_FILE, users)
 
 
@@ -123,8 +112,7 @@ def create_user(username: str, password: str, role: str = "user") -> bool:
         return False
     if role not in ("admin", "user"):
         return False
-    lock = _get_lock("users")
-    with lock:
+    with _users_lock:
         users = _load_json(USERS_FILE) if USERS_FILE.exists() else {}
         if username in users:
             return False
@@ -141,8 +129,7 @@ def create_user(username: str, password: str, role: str = "user") -> bool:
 def delete_user(username: str) -> bool:
     if username == "admin":
         return False
-    lock = _get_lock("users")
-    with lock:
+    with _users_lock:
         users = _load_json(USERS_FILE) if USERS_FILE.exists() else {}
         if username not in users:
             return False
@@ -158,8 +145,7 @@ def update_user(username: str, **kwargs) -> bool:
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return False
-    lock = _get_lock("users")
-    with lock:
+    with _users_lock:
         users = _load_json(USERS_FILE) if USERS_FILE.exists() else {}
         if username not in users:
             return False
@@ -189,14 +175,19 @@ def is_admin(username: str) -> bool:
 
 # ─── 会话加密和解密辅助 ────────────────────────────────────────
 
+from .config import MASTER_KEY_FILE
+
 _session_key: bytes | None = None
+_session_key_mtime: float = 0.0
 
 
 def _derive_session_key() -> bytes:
-    global _session_key
-    if _session_key is None:
+    global _session_key, _session_key_mtime
+    mtime = MASTER_KEY_FILE.stat().st_mtime if MASTER_KEY_FILE.exists() else 0.0
+    if _session_key is None or mtime != _session_key_mtime:
         master_key = get_or_create_master_key()
         _session_key = hmac.new(master_key, b"diary-session-v1", hashlib.sha256).digest()
+        _session_key_mtime = mtime
     return _session_key
 
 
@@ -226,15 +217,7 @@ def _decrypt_session(encrypted: str, session_key: bytes) -> dict:
 
 # ─── 文件锁 ────────────────────────────────────────────
 
-_session_locks: dict[str, threading.RLock] = {}
-_session_locks_lock = threading.Lock()
-
-
-def _get_session_lock(name: str) -> threading.RLock:
-    with _session_locks_lock:
-        if name not in _session_locks:
-            _session_locks[name] = threading.RLock()
-        return _session_locks[name]
+_session_lock = threading.RLock()
 
 
 def _load_sessions_data() -> dict:
@@ -261,30 +244,54 @@ def _save_sessions_data(sessions: dict) -> None:
         raise
 
 
-# ─── 会话存储 ─────────────────────────────────────────────────
+# ─── 会话存储（内存缓存 + 延迟刷盘）──────────────────────────────
 
 _session_file = SESSIONS_FILE
+_session_cache: dict = {}
+_session_cache_loaded: float = 0.0
+_SESSION_CACHE_TTL = 5.0
 
 
-def load_sessions() -> dict:
-    """加载加密会话（外部调用时自行加锁）"""
-    lock = _get_session_lock("sessions")
+def _load_sessions_data_cached() -> dict:
+    global _session_cache, _session_cache_loaded
+    now = time.time()
+    if _session_cache and now - _session_cache_loaded < _SESSION_CACHE_TTL:
+        return _session_cache
+    _session_cache = _load_sessions_data()
+    _session_cache_loaded = now
+    return _session_cache
+
+
+def _save_and_cache(sessions: dict) -> None:
+    global _session_cache, _session_cache_loaded
+    _save_sessions_data(sessions)
+    _session_cache = sessions
+    _session_cache_loaded = time.time()
+
+
+def _invalidate_cache() -> None:
+    global _session_cache, _session_cache_loaded
+    _session_cache = {}
+    _session_cache_loaded = 0.0
+
+
+def _load_sessions() -> dict:
+    lock = _session_lock
     with lock:
-        return _load_sessions_data()
+        return _load_sessions_data_cached()
 
 
-def save_sessions(sessions: dict) -> None:
-    """保存加密会话（外部调用时自行加锁）"""
-    lock = _get_session_lock("sessions")
+def _save_sessions(sessions: dict) -> None:
+    lock = _session_lock
     with lock:
-        _save_sessions_data(sessions)
+        _save_and_cache(sessions)
 
 
 def create_session(username: str, ip: str = "unknown") -> str:
     """创建新会话"""
-    lock = _get_session_lock("sessions")
+    lock = _session_lock
     with lock:
-        sessions = _load_sessions_data()
+        sessions = _load_sessions_data_cached()
         token = os.urandom(32).hex()
         now = time.time()
         sessions[token] = {
@@ -293,25 +300,24 @@ def create_session(username: str, ip: str = "unknown") -> str:
             "last_activity": now,
             "ip": ip,
         }
-        _save_sessions_data(sessions)
+        _save_and_cache(sessions)
     return token
 
 
 def validate_session(token: str) -> str | None:
-    """验证会话，返回用户名或 None（不触发磁盘写入）"""
+    """验证会话，返回用户名或 None（内存读取，仅超时清理时写盘）"""
     if not token:
         return None
-    lock = _get_session_lock("sessions")
+    lock = _session_lock
     with lock:
-        sessions = _load_sessions_data()
+        sessions = _load_sessions_data_cached()
         session = sessions.get(token)
         if not session:
             return None
         if time.time() - session["last_activity"] > SESSION_TIMEOUT:
             del sessions[token]
-            _save_sessions_data(sessions)
+            _save_and_cache(sessions)
             return None
-        session["last_activity"] = time.time()
         return session["username"]
 
 
@@ -319,9 +325,9 @@ def peek_session(token: str) -> str | None:
     """只读验证会话，不更新 last_activity，不落盘"""
     if not token:
         return None
-    lock = _get_session_lock("sessions")
+    lock = _session_lock
     with lock:
-        sessions = _load_sessions_data()
+        sessions = _load_sessions_data_cached()
         session = sessions.get(token)
         if not session:
             return None
@@ -332,18 +338,18 @@ def peek_session(token: str) -> str | None:
 
 def invalidate_session(token: str) -> None:
     """使会话失效"""
-    lock = _get_session_lock("sessions")
+    lock = _session_lock
     with lock:
-        sessions = _load_sessions_data()
+        sessions = _load_sessions_data_cached()
         sessions.pop(token, None)
-        _save_sessions_data(sessions)
+        _save_and_cache(sessions)
 
 
 def cleanup_expired_sessions() -> None:
     """清理过期会话"""
-    lock = _get_session_lock("sessions")
+    lock = _session_lock
     with lock:
-        sessions = _load_sessions_data()
+        sessions = _load_sessions_data_cached()
         now = time.time()
         expired_tokens = [
             token for token, session in sessions.items()
@@ -352,14 +358,14 @@ def cleanup_expired_sessions() -> None:
         for token in expired_tokens:
             del sessions[token]
         if expired_tokens:
-            _save_sessions_data(sessions)
+            _save_and_cache(sessions)
             logger.info(f"清理了 {len(expired_tokens)} 个过期会话")
 
 # ─── 速率限制（内存化 + 定时刷盘）───────────────────────
 
 _rate_limit_mem: dict = {}
 _rate_limit_lock = threading.Lock()
-_rate_limit_flush_interval = 10
+_rate_limit_flush_interval = 300
 _rate_limit_last_flush = 0.0
 
 
@@ -423,10 +429,11 @@ def check_login_limit(client_ip: str) -> bool:
     return True
 
 
-# ─── 审计日志 ──────────────────────────────────────────
+# ─── 审计日志（内存缓冲 + 定时刷盘 + 按天轮转）────────────
 
 
-_audit_lock = threading.Lock()
+_audit_buffer: list[str] = []
+_audit_buffer_lock = threading.Lock()
 
 
 def _sanitize_log_field(value: str) -> str:
@@ -447,8 +454,30 @@ def audit_log(action: str, username: str, detail: str = "", ip: str = "") -> Non
         "detail": detail,
         "ip": ip,
     }, ensure_ascii=False) + "\n"
-    with _audit_lock:
-        with open(AUDIT_FILE, "a", encoding="utf-8") as f:
-            f.write(log_entry)
+    with _audit_buffer_lock:
+        _audit_buffer.append(log_entry)
+
+
+def _flush_audit_log() -> None:
+    with _audit_buffer_lock:
+        if not _audit_buffer:
+            return
+        entries = _audit_buffer[:]
+        _audit_buffer.clear()
+    # 按天轮转：检查现有文件日期
+    today = datetime.now().strftime("%Y-%m-%d")
+    if AUDIT_FILE.exists():
+        try:
+            first_line = AUDIT_FILE.read_text(encoding="utf-8").split("\n", 1)[0]
+            if first_line:
+                entry_date = json.loads(first_line).get("timestamp", "")[:10]
+                if entry_date and entry_date != today:
+                    archive_name = AUDIT_FILE.with_name(f"audit_{entry_date}.log")
+                    if not archive_name.exists():
+                        AUDIT_FILE.rename(archive_name)
+        except Exception:
+            pass
+    with open(AUDIT_FILE, "a", encoding="utf-8") as f:
+        f.writelines(entries)
 
 
