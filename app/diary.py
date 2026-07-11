@@ -17,7 +17,7 @@ from . import search as search_index
 
 _streak_cache = {"value": 0, "computed_at": 0.0, "ttl": 300}
 _stats_cache = {"value": None, "computed_at": 0.0, "ttl": 60}
-_diary_files_cache = {"files": None, "computed_at": 0.0, "ttl": 30}
+_diary_files_cache = {"files": None, "computed_at": 0.0, "ttl": 300}
 _fts_built = False
 
 
@@ -155,6 +155,11 @@ def _ensure_fts_index() -> None:
     if _fts_built:
         return
     files = []
+    total_entries = 0
+    total_words = 0
+    first_date = None
+    last_date = None
+    all_tags: dict[str, int] = {}
     for filepath in _get_diary_files():
         path = Path(filepath)
         try:
@@ -163,12 +168,32 @@ def _ensure_fts_index() -> None:
             month_str = path.parent.name
             year_str = path.parent.parent.name
             full_date = f"{year_str}-{month_str}-{date_str}"
-            tags = " ".join(parse_tags(content))
+            tags = parse_tags(content)
+            tags_str = " ".join(tags)
             preview = get_preview(content)
-            files.append((content, str(filepath), full_date, preview, tags))
+            files.append((content, str(filepath), full_date, preview, tags_str))
+            total_entries += 1
+            total_words += len(content.replace(" ", "").replace("\n", ""))
+            for tag in tags:
+                all_tags[tag] = all_tags.get(tag, 0) + 1
+            if first_date is None:
+                first_date = full_date
+            last_date = full_date
         except Exception:
             continue
-    search_index.build_index(files)
+    if files:
+        search_index.build_index(files)
+        sorted_tags = dict(sorted(all_tags.items(), key=lambda x: x[1], reverse=True))
+        _stats_cache["value"] = {
+            "total_entries": total_entries,
+            "total_words": total_words,
+            "first_date": first_date,
+            "last_date": last_date,
+            "streak": calculate_streak(),
+            "tags": sorted_tags,
+            "encrypted": ENCRYPTION_ENABLED,
+        }
+        _stats_cache["computed_at"] = time.time()
     _fts_built = True
 
 
@@ -198,7 +223,7 @@ def get_stats() -> dict:
     if _stats_cache["value"] is not None and now - _stats_cache["computed_at"] < _stats_cache["ttl"]:
         return _stats_cache["value"]
 
-    if not DIARY_DIR.exists():
+    if not DIARY_DIR.exists() or not _get_diary_files():
         result = {
             "total_entries": 0,
             "total_words": 0,
@@ -212,53 +237,12 @@ def get_stats() -> dict:
         _stats_cache["computed_at"] = now
         return result
 
-    total_entries = 0
-    total_words = 0
-    first_date = None
-    last_date = None
-    all_tags: dict[str, int] = {}
+    _ensure_fts_index()
 
-    files = sorted(_get_diary_files())
+    if _stats_cache["value"] is not None:
+        return _stats_cache["value"]
 
-    for filepath in files:
-        path = Path(filepath)
-        try:
-            content = read_diary_file_sync(path)
-        except Exception:
-            continue
-
-        total_entries += 1
-        total_words += len(content.replace(" ", "").replace("\n", ""))
-
-        tags = parse_tags(content)
-        for tag in tags:
-            all_tags[tag] = all_tags.get(tag, 0) + 1
-
-        date_str = path.stem
-        month_str = path.parent.name
-        year_str = path.parent.parent.name
-        full_date = f"{year_str}-{month_str}-{date_str}"
-
-        if first_date is None:
-            first_date = full_date
-        last_date = full_date
-
-    streak = calculate_streak()
-    sorted_tags = dict(sorted(all_tags.items(), key=lambda x: x[1], reverse=True))
-
-    result = {
-        "total_entries": total_entries,
-        "total_words": total_words,
-        "first_date": first_date,
-        "last_date": last_date,
-        "streak": streak,
-        "tags": sorted_tags,
-        "encrypted": ENCRYPTION_ENABLED,
-    }
-
-    _stats_cache["value"] = result
-    _stats_cache["computed_at"] = now
-    return result
+    return get_stats()
 
 
 # ─── 日历 ──────────────────────────────────────────────

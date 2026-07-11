@@ -1,5 +1,8 @@
 """API 集成测试"""
 
+import io
+import json
+import zipfile
 import pytest
 import tempfile
 from pathlib import Path
@@ -337,3 +340,70 @@ class TestWithEncryption:
 
         raw = (temp_dir / "data" / "2026" / "06" / "15.md").read_text(encoding="utf-8")
         assert raw.startswith("ENC:")
+
+
+class TestBackupRestore:
+    def test_backup_download(self, client):
+        token = _get_token(client)
+        date = "2026-03-10"
+        client.post(f"/api/diaries/{date}",
+            json={"content": "# 备份测试\n\n这是一篇测试日记。"},
+            headers={"X-Auth-Token": token}
+        )
+
+        resp = client.get("/api/backup", headers={"X-Auth-Token": token})
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/zip"
+
+        zf = zipfile.ZipFile(io.BytesIO(resp.content))
+        names = zf.namelist()
+        assert "metadata.json" in names
+        assert any(name.endswith("03/10.md") for name in names)
+        metadata = json.loads(zf.read("metadata.json"))
+        assert metadata["total_entries"] >= 1
+        assert metadata["encrypted"] is False
+
+    def test_restore(self, client, app, temp_dir):
+        token = _get_token(client)
+        client.post("/api/diaries/2026-04-01",
+            json={"content": "# 恢复前"},
+            headers={"X-Auth-Token": token}
+        )
+
+        backup_resp = client.get("/api/backup", headers={"X-Auth-Token": token})
+        backup_bytes = backup_resp.content
+
+        client.delete("/api/diaries/2026-04-01", headers={"X-Auth-Token": token})
+
+        restore_resp = client.post("/api/restore",
+            files={"backup": ("backup.zip", backup_bytes, "application/zip")},
+            headers={"X-Auth-Token": token}
+        )
+        assert restore_resp.status_code == 200
+        data = restore_resp.json()
+        assert data["status"] == "ok"
+        assert data["restored"] >= 1
+
+        get_resp = client.get("/api/diaries/2026-04-01", headers={"X-Auth-Token": token})
+        assert get_resp.status_code == 200
+        assert "恢复前" in get_resp.json()["content"]
+
+    def test_restore_invalid_zip(self, client):
+        token = _get_token(client)
+        resp = client.post("/api/restore",
+            files={"backup": ("bad.zip", b"not a zip", "application/zip")},
+            headers={"X-Auth-Token": token}
+        )
+        assert resp.status_code == 400
+
+    def test_restore_no_metadata(self, client):
+        token = _get_token(client)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("test.md", "# orphan")
+        buf.seek(0)
+        resp = client.post("/api/restore",
+            files={"backup": ("no_meta.zip", buf.read(), "application/zip")},
+            headers={"X-Auth-Token": token}
+        )
+        assert resp.status_code == 400
