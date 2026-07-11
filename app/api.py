@@ -3,13 +3,15 @@
 import json
 import logging
 import asyncio
+import zipfile
+import io
 import tempfile
 import shutil
 from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, StreamingResponse
 
 from .config import (
@@ -31,6 +33,7 @@ from .auth import (
     create_session,
     validate_session,
     invalidate_session,
+    cleanup_expired_sessions,
     check_rate_limit,
     check_login_limit,
     audit_log,
@@ -108,11 +111,14 @@ def create_app() -> FastAPI:
         audit_log("SYSTEM_START", "system", "server started", "")
 
         flush_task = asyncio.create_task(_periodic_flush())
+        session_cleanup_task = asyncio.create_task(_periodic_session_cleanup())
         yield
 
         flush_task.cancel()
+        session_cleanup_task.cancel()
         try:
             await flush_task
+            await session_cleanup_task
         except asyncio.CancelledError:
             pass
         _flush_rate_limits()
@@ -123,6 +129,11 @@ def create_app() -> FastAPI:
         while True:
             await asyncio.sleep(10)
             _flush_rate_limits()
+
+    async def _periodic_session_cleanup():
+        while True:
+            await asyncio.sleep(300)
+            cleanup_expired_sessions()
 
     app = FastAPI(
         title="本地日记本",
@@ -454,8 +465,6 @@ def _register_routes(app: FastAPI) -> None:
     @require_auth
     async def backup(request: Request):
         username = request.state.username
-        import zipfile
-        import io
 
         def generate_backup():
             buf = io.BytesIO()
@@ -491,8 +500,6 @@ def _register_routes(app: FastAPI) -> None:
     @require_auth
     async def restore(request: Request, backup: UploadFile = File(...)):
         username = request.state.username
-        import zipfile
-        import io
 
         if not backup.filename or not backup.filename.endswith(".zip"):
             raise HTTPException(status_code=400, detail="请上传 ZIP 备份文件")
@@ -574,9 +581,6 @@ def _register_routes(app: FastAPI) -> None:
         if not user or not verify_password(data.password, user["password_hash"]):
             audit_log("DECRYPT_BACKUP_AUTH_FAIL", username, "", request.client.host or "unknown")
             raise HTTPException(status_code=401, detail="密码错误")
-
-        import zipfile
-        import io
 
         def generate_decrypted_backup():
             buf = io.BytesIO()

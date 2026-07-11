@@ -191,14 +191,19 @@ def sanitize_input(text: str, max_length: int = 10000) -> str:
 
 # ─── 会话加密和解密辅助 ────────────────────────────────────────
 
+from .config import MASTER_KEY_FILE
+
 _session_key: bytes | None = None
+_session_key_mtime: float = 0.0
 
 
 def _derive_session_key() -> bytes:
-    global _session_key
-    if _session_key is None:
+    global _session_key, _session_key_mtime
+    mtime = MASTER_KEY_FILE.stat().st_mtime if MASTER_KEY_FILE.exists() else 0.0
+    if _session_key is None or mtime != _session_key_mtime:
         master_key = get_or_create_master_key()
         _session_key = hmac.new(master_key, b"diary-session-v1", hashlib.sha256).digest()
+        _session_key_mtime = mtime
     return _session_key
 
 
@@ -268,19 +273,16 @@ def _save_sessions_data(sessions: dict) -> None:
 _session_file = SESSIONS_FILE
 
 
-def load_sessions() -> dict:
-    """加载加密会话（外部调用时自行加锁）"""
+def _load_sessions() -> dict:
     lock = _get_session_lock("sessions")
     with lock:
         return _load_sessions_data()
 
 
-def save_sessions(sessions: dict) -> None:
-    """保存加密会话（外部调用时自行加锁）"""
+def _save_sessions(sessions: dict) -> None:
     lock = _get_session_lock("sessions")
     with lock:
         _save_sessions_data(sessions)
-        logger.info(f"保存了 {len(sessions)} 个加密会话")
 
 
 def create_session(username: str, ip: str = "unknown") -> str:
