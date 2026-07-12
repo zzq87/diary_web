@@ -35,12 +35,12 @@ class Settings(BaseSettings):
     rate_limit_window: int = Field(default=60, validation_alias="DIARY_RATE_LIMIT_WINDOW", ge=10, le=3600)
     rate_limit_max: int = Field(default=100, validation_alias="DIARY_RATE_LIMIT_MAX", ge=10, le=1000)
     encryption_enabled: bool = Field(default=True, validation_alias="DIARY_ENCRYPT")
-    pbkdf2_iterations: int = Field(default=600000, validation_alias="DIARY_PBKDF2_ITERATIONS", ge=100000, le=2000000)
+    pbkdf2_iterations: int = Field(default=600000, validation_alias="DIARY_PBKDF2_ITERATIONS", ge=50000, le=2000000)
     default_password: str = Field(default="admin123", validation_alias="DIARY_DEFAULT_PASSWORD")
 
     # ─── 服务配置 ──────────────────────────────────────────
     port: int = Field(default=9000, validation_alias="DIARY_PORT", ge=1024, le=65535)
-    proxy_connect_addr: str = Field(default="192.168.1.2", validation_alias="DIARY_PROXY_CONNECT_ADDR")
+    proxy_connect_addr: str = Field(default="127.0.0.1", validation_alias="DIARY_PROXY_CONNECT_ADDR")
 
     # ─── 运行时路径 ────────────────────────────────────────
     users_file: Path | None = Field(default=None, init=False)
@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     sessions_file: Path | None = Field(default=None, init=False)
     rate_limit_file: Path | None = Field(default=None, init=False)
     master_key_file: Path | None = Field(default=None, init=False)
+    search_db_file: Path | None = Field(default=None, init=False)
 
     def model_post_init(self, __context) -> None:
         self._ensure_dirs()
@@ -64,6 +65,9 @@ class Settings(BaseSettings):
         self.sessions_file = self.config_dir / "sessions.enc.json"
         self.rate_limit_file = self.config_dir / "rate_limits.json"
         self.master_key_file = self.config_dir / "master.key"
+        # tmpfs 优先（Pi SD 卡保护），fallback 到 config 目录
+        tmpfs_db = Path("/tmp/diary_search.db")
+        self.search_db_file = tmpfs_db if (tmpfs_db.parent.exists() and os.name != "nt") else (self.config_dir / "search.db")
 
     @staticmethod
     def _safe_chmod(path: Path, mode: int) -> None:
@@ -108,6 +112,7 @@ AUDIT_FILE = settings.audit_file
 SESSIONS_FILE = settings.sessions_file
 RATE_LIMIT_FILE = settings.rate_limit_file
 MASTER_KEY_FILE = settings.master_key_file
+SEARCH_DB_FILE = settings.search_db_file
 
 safe_chmod = Settings._safe_chmod
 ensure_dirs = settings._ensure_dirs

@@ -61,8 +61,9 @@
             document.getElementById('appContainer').style.display = 'block';
             document.getElementById('lockScreen').classList.remove('show');
             document.getElementById('currentUser').textContent = currentUser;
-            // 仅管理员显示用户管理入口
-            document.getElementById('usersNavLink').style.display = currentUserRole === 'admin' ? 'inline-block' : 'none';
+            var isAdmin = currentUserRole === 'admin';
+            document.getElementById('usersNavLink').style.display = isAdmin ? 'inline-block' : 'none';
+            document.getElementById('mobileUsersNav').style.display = isAdmin ? 'flex' : 'none';
             resetIdleTimer();
         }
 
@@ -312,8 +313,8 @@
 
         // ─── 空闲检测（带事件监听器清理）──
         function clearIdleEventHandlers() {
-            idleEventHandlers.forEach(({ event, handler }) => {
-                document.removeEventListener(event, handler);
+            idleEventHandlers.forEach(({ event, handler, opts }) => {
+                document.removeEventListener(event, handler, opts);
             });
             idleEventHandlers = [];
         }
@@ -335,8 +336,9 @@
 
             const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
             events.forEach(evt => {
-                document.addEventListener(evt, handler, { once: true });
-                idleEventHandlers.push({ event: evt, handler });
+                const opts = (evt === 'scroll' || evt === 'touchstart') ? { once: true, passive: true } : { once: true };
+                document.addEventListener(evt, handler, opts);
+                idleEventHandlers.push({ event: evt, handler, opts });
             });
         }
 
@@ -422,7 +424,13 @@
         // ─── 日记列表 ──────────────────────────────────
         async function loadDiaryList() {
             const list = document.getElementById('diaryList');
-            list.innerHTML = '<div class="loading">加载中...</div>';
+            list.innerHTML = Array.from({length: 4}, () => `
+                <div class="skeleton-item">
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                </div>
+            `).join('');
 
             const res = await apiFetch('/api/diaries?limit=50');
             if (!res) return;
@@ -430,7 +438,11 @@
             const data = await res.json();
 
             if (data.entries.length === 0) {
-                list.innerHTML = '<div class="loading">还没有日记，点击"写日记"开始记录吧！</div>';
+                list.innerHTML = `<div class="empty-state">
+                    <div class="empty-icon">📖</div>
+                    <div class="empty-title">还没有日记</div>
+                    <div class="empty-desc">点击「✏️ 写日记」开始记录吧</div>
+                </div>`;
                 return;
             }
 
@@ -444,7 +456,6 @@
                 </div>
             `).join('');
 
-            // 绑定点击事件
             list.querySelectorAll('.diary-item').forEach(el => {
                 el.addEventListener('click', () => openDiary(el.dataset.date));
             });
@@ -578,7 +589,7 @@
 
             const tagsContainer = document.getElementById('tagsContainer');
             if (Object.keys(stats.tags).length === 0) {
-                tagsContainer.innerHTML = '<p style="color: #999;">还没有标签</p>';
+                tagsContainer.innerHTML = '<div class="empty-state" style="padding:1.5rem;"><div class="empty-desc">还没有标签</div></div>';
             } else {
                 tagsContainer.innerHTML = Object.entries(stats.tags)
                     .map(([tag, count]) => `<span class="tag-item" data-tag="${escapeHtml(tag)}">#${escapeHtml(tag)} (${count})</span>`)
@@ -602,19 +613,32 @@
             const statusBar = document.getElementById('searchStatus');
             const statusText = document.getElementById('searchStatusText');
             statusBar.style.display = 'flex';
+            statusText.textContent = `搜索中...`;
+
+            const list = document.getElementById('diaryList');
+            list.innerHTML = Array.from({length: 3}, () => `
+                <div class="skeleton-item">
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                </div>
+            `).join('');
 
             const res = await apiFetch(`/api/search?q=${encodeURIComponent(query)}`);
             if (!res) return;
             const data = await res.json();
 
-            const list = document.getElementById('diaryList');
             if (data.results.length === 0) {
-                statusText.textContent = `搜索"${escapeHtml(query)} 未找到结果"`;
-                list.innerHTML = `<div class="loading">没有找到包含"${escapeHtml(query)}"的日记</div>`;
+                statusText.textContent = `"${escapeHtml(query)}" 未找到结果`;
+                list.innerHTML = `<div class="empty-state">
+                    <div class="empty-icon">🔍</div>
+                    <div class="empty-title">未找到匹配的日记</div>
+                    <div class="empty-desc">试试其他关键词</div>
+                </div>`;
                 return;
             }
 
-            statusText.textContent = `搜索"${escapeHtml(query)}" — 找到 ${data.total} 篇`;
+            statusText.textContent = `"${escapeHtml(query)}" — 找到 ${data.total} 篇`;
 
             list.innerHTML = data.results.map(entry => `
                 <div class="diary-item" data-date="${entry.date}">
@@ -916,7 +940,7 @@
         async function loadUsers() {
             if (currentUserRole !== 'admin') return;
             const tbody = document.getElementById('usersTableBody');
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">加载中...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5"><div class="loading-dots"><span></span><span></span><span></span></div></td></tr>';
 
             const res = await apiFetch('/api/users');
             if (!res) return;

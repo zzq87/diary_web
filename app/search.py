@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from .config import CONFIG_DIR
+from .config import CONFIG_DIR, SEARCH_DB_FILE
 
 _db_path: Optional[Path] = None
 _conn: Optional[sqlite3.Connection] = None
@@ -16,7 +16,7 @@ _conn_lock = threading.Lock()
 def _get_db_path() -> Path:
     global _db_path
     if _db_path is None:
-        _db_path = CONFIG_DIR / "search.db"
+        _db_path = SEARCH_DB_FILE
     return _db_path
 
 
@@ -73,6 +73,7 @@ def build_index(files: list[tuple[str, str, str, str, str]]) -> None:
     """files: [(content, path, date, preview, tags_str), ...]"""
     with _conn_lock:
         conn = _get_conn()
+        conn.execute("BEGIN")
         conn.execute("DELETE FROM diary_index")
         conn.executemany(
             "INSERT INTO diary_index(content, path, date, preview, tags) "

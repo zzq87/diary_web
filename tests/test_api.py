@@ -39,7 +39,6 @@ def app(temp_dir):
          patch("app.auth.DEFAULT_PASSWORD", "test123456"), \
          patch("app.auth._session_file", session_file), \
          patch("app.auth._rate_limit_mem", {}), \
-         patch("app.auth._rate_limit_last_flush", 0.0), \
          patch("app.crypto.MASTER_KEY_FILE", temp_dir / "config" / "master.key"), \
          patch("app.diary.DIARY_DIR", temp_dir / "data"), \
          patch("app.diary.ENCRYPTION_ENABLED", False), \
@@ -304,7 +303,6 @@ class TestWithEncryption:
              patch("app.auth.DEFAULT_PASSWORD", "test123456"), \
              patch("app.auth._session_file", session_file), \
              patch("app.auth._rate_limit_mem", {}), \
-             patch("app.auth._rate_limit_last_flush", 0.0), \
              patch("app.crypto.MASTER_KEY_FILE", temp_dir / "config" / "master.key"), \
              patch("app.diary.DIARY_DIR", temp_dir / "data"), \
              patch("app.diary.ENCRYPTION_ENABLED", True), \

@@ -36,11 +36,10 @@ from .auth import (
     peek_session,
     invalidate_session,
     cleanup_expired_sessions,
-    check_rate_limit,
     check_login_limit,
     audit_log,
-    _load_rate_limits,
-    _flush_rate_limits,
+    _load_sessions_from_disk,
+    _persist_sessions,
     _flush_audit_log,
     create_user,
     delete_user,
@@ -99,18 +98,7 @@ from .schemas import (
 )
 
 logger = logging.getLogger("diary.api")
-
-
-def _stream_and_cleanup(file_handle, tmp_path: Path):
-    try:
-        while True:
-            chunk = file_handle.read(8192)
-            if not chunk:
-                break
-            yield chunk
-    finally:
-        file_handle.close()
-        tmp_path.unlink(missing_ok=True)
+_diary_semaphore = asyncio.Semaphore(4)
 
 
 def create_app() -> FastAPI:
@@ -122,7 +110,7 @@ def create_app() -> FastAPI:
         logger.info(f"加密存储: {'开启' if ENCRYPTION_ENABLED else '关闭'}")
         logger.info(f"会话超时: {SESSION_TIMEOUT}秒")
 
-        _load_rate_limits()
+        _load_sessions_from_disk()
         audit_log("SYSTEM_START", "system", "server started", "")
 
         flush_task = asyncio.create_task(_periodic_flush())
@@ -136,16 +124,15 @@ def create_app() -> FastAPI:
             await session_cleanup_task
         except asyncio.CancelledError:
             pass
-        _flush_rate_limits()
         _flush_audit_log()
+        _persist_sessions()
         search_index.close()
         audit_log("SYSTEM_STOP", "system", "server stopped", "")
         logger.info("日记本服务已关闭")
 
     async def _periodic_flush():
         while True:
-            await asyncio.sleep(30)
-            _flush_rate_limits()
+            await asyncio.sleep(300)
             _flush_audit_log()
 
     async def _periodic_session_cleanup():
@@ -183,7 +170,9 @@ def _register_routes(app: FastAPI) -> None:
             raise HTTPException(status_code=403)
         if not full_path.exists() or not full_path.is_file():
             raise HTTPException(status_code=404)
-        return FileResponse(str(full_path))
+        response = FileResponse(str(full_path))
+        response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
 
     @app.post("/api/login", response_model=LoginResponse)
     async def login(data: LoginRequest, request: Request):
@@ -344,7 +333,8 @@ def _register_routes(app: FastAPI) -> None:
         files = _get_diary_files()
 
         async def _read_entry(filepath: str) -> DiaryEntry | None:
-            path = Path(filepath)
+            async with _diary_semaphore:
+                path = Path(filepath)
             date_str = path.stem
             month_str = path.parent.name
             year_str = path.parent.parent.name
@@ -468,23 +458,27 @@ def _register_routes(app: FastAPI) -> None:
     @require_auth
     async def audit(request: Request, limit: int = 50):
         username = request.state.username
+        from collections import deque
 
-        if not AUDIT_FILE.exists():
+        today = datetime.now().strftime("%Y-%m-%d")
+        log_file = AUDIT_FILE.parent / f"audit_{today}.log"
+        if not log_file.exists():
             return {"entries": [], "total": 0}
 
-        lines = AUDIT_FILE.read_text(encoding="utf-8").strip().split("\n")
         entries = []
-        for line in lines[-limit:]:
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(line)
-                entries.append(f"[{entry.get('timestamp', '')}] user={entry.get('user', '')} action={entry.get('action', '')} detail={entry.get('detail', '')} ip={entry.get('ip', '')}")
-            except json.JSONDecodeError:
-                entries.append(line)
+        with open(log_file, "r", encoding="utf-8") as f:
+            for line in deque(f, maxlen=limit):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    entries.append(f"[{entry.get('timestamp', '')}] user={entry.get('user', '')} action={entry.get('action', '')} detail={entry.get('detail', '')} ip={entry.get('ip', '')}")
+                except json.JSONDecodeError:
+                    entries.append(line)
 
         audit_log("VIEW_AUDIT", username, f"limit={limit}", request.client.host or "unknown")
-        return {"entries": entries, "total": len(lines)}
+        return {"entries": entries, "total": len(entries)}
 
     @app.get("/api/backup", dependencies=[Depends(rate_limit("backup"))])
     @require_auth
@@ -492,32 +486,30 @@ def _register_routes(app: FastAPI) -> None:
         username = request.state.username
 
         def generate_backup():
-            tmp = tempfile.NamedTemporaryFile(delete=False)
-            try:
-                total = 0
-                with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as zf:
-                    for filepath in sorted(DIARY_DIR.rglob("*.md")):
-                        rel_path = filepath.relative_to(DIARY_DIR.parent)
-                        zf.write(filepath, rel_path)
-                        total += 1
+            buf = io.BytesIO()
+            total = 0
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+                for filepath in sorted(DIARY_DIR.rglob("*.md")):
+                    rel_path = filepath.relative_to(DIARY_DIR.parent)
+                    zf.write(filepath, rel_path)
+                    total += 1
 
-                    metadata = {
-                        "created": datetime.now().isoformat(),
-                        "created_by": username,
-                        "total_entries": total,
-                        "encrypted": ENCRYPTION_ENABLED,
-                        "version": "3.0",
-                    }
-                    zf.writestr("metadata.json", json.dumps(metadata, ensure_ascii=False, indent=2))
+                metadata = {
+                    "created": datetime.now().isoformat(),
+                    "created_by": username,
+                    "total_entries": total,
+                    "encrypted": ENCRYPTION_ENABLED,
+                    "version": "3.0",
+                }
+                zf.writestr("metadata.json", json.dumps(metadata, ensure_ascii=False, indent=2))
 
-                tmp.close()
-                tmp_path = Path(tmp.name)
-                file_handle = open(tmp_path, "rb")
-                yield from _stream_and_cleanup(file_handle, tmp_path)
-            except Exception:
-                if tmp and Path(tmp.name).exists():
-                    Path(tmp.name).unlink(missing_ok=True)
-                raise
+            buf.seek(0)
+            while True:
+                chunk = buf.read(8192)
+                if not chunk:
+                    break
+                yield chunk
+            buf.close()
 
         audit_log("BACKUP_CREATED", username, "", request.client.host or "unknown")
         return StreamingResponse(
@@ -613,37 +605,31 @@ def _register_routes(app: FastAPI) -> None:
             raise HTTPException(status_code=401, detail="密码错误")
 
         def generate_decrypted_backup():
-            tmp = tempfile.NamedTemporaryFile(delete=False)
-            try:
-                total = 0
-                with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as zf:
-                    for filepath in sorted(DIARY_DIR.rglob("*.md")):
-                        total += 1
-                        rel_path = filepath.relative_to(DIARY_DIR.parent)
-                        try:
-                            content = read_diary_file_sync(filepath)
-                            zf.writestr(str(rel_path), content)
-                        except Exception as e:
-                            logger.warning(f"解密失败 {filepath}: {e}")
-                            zf.write(filepath, rel_path)
+            buf = io.BytesIO()
+            total = 0
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+                for filepath in sorted(DIARY_DIR.rglob("*.md")):
+                    total += 1
+                    rel_path = filepath.relative_to(DIARY_DIR.parent)
+                    try:
+                        content = read_diary_file_sync(filepath)
+                        zf.writestr(str(rel_path), content)
+                    except Exception as e:
+                        logger.warning(f"解密失败 {filepath}: {e}")
+                        zf.write(filepath, rel_path)
 
-                    metadata = {
-                        "created": datetime.now().isoformat(),
-                        "created_by": username,
-                        "total_entries": total,
-                        "decrypted": True,
-                        "warning": "此备份包含明文日记，请妥善保管！",
-                    }
-                    zf.writestr("metadata.json", json.dumps(metadata, ensure_ascii=False, indent=2))
+                metadata = {
+                    "created": datetime.now().isoformat(),
+                    "created_by": username,
+                    "total_entries": total,
+                    "decrypted": True,
+                    "warning": "此备份包含明文日记，请妥善保管！",
+                }
+                zf.writestr("metadata.json", json.dumps(metadata, ensure_ascii=False, indent=2))
 
-                tmp.close()
-                tmp_path = Path(tmp.name)
-                file_handle = open(tmp_path, "rb")
-                yield from _stream_and_cleanup(file_handle, tmp_path)
-            except Exception:
-                if tmp and Path(tmp.name).exists():
-                    Path(tmp.name).unlink(missing_ok=True)
-                raise
+            buf.seek(0)
+            yield buf.getvalue()
+            buf.close()
 
         audit_log("DECRYPTED_BACKUP", username, "", request.client.host or "unknown")
         return StreamingResponse(
@@ -680,7 +666,7 @@ def _register_routes(app: FastAPI) -> None:
                 "free_gb": round(usage.free / (1024**3), 2),
                 "used_percent": round(usage.used / usage.total * 100, 1),
             }
-            if usage.free < 100 * 1024 * 1024:
+            if usage.free < max(usage.total * 0.05, 100 * 1024 * 1024):
                 health["status"] = "warning"
                 health["disk_warning"] = "磁盘空间不足"
         except Exception:

@@ -220,18 +220,6 @@ def _decrypt_session(encrypted: str, session_key: bytes) -> dict:
 _session_lock = threading.RLock()
 
 
-def _load_sessions_data() -> dict:
-    if not _session_file.exists():
-        return {}
-    try:
-        encrypted_data = _session_file.read_text(encoding="utf-8")
-        session_key = _derive_session_key()
-        return _decrypt_session(encrypted_data, session_key)
-    except Exception as e:
-        logger.warning(f"加载加密会话失败: {e}")
-        return {}
-
-
 def _save_sessions_data(sessions: dict) -> None:
     try:
         session_key = _derive_session_key()
@@ -244,151 +232,94 @@ def _save_sessions_data(sessions: dict) -> None:
         raise
 
 
-# ─── 会话存储（内存缓存 + 延迟刷盘）──────────────────────────────
+# ─── 会话存储（纯内存，仅 shutdown 时持久化）│ SD 卡友好 ────
 
 _session_file = SESSIONS_FILE
 _session_cache: dict = {}
-_session_cache_loaded: float = 0.0
-_SESSION_CACHE_TTL = 5.0
+_session_lock = threading.RLock()
 
 
-def _load_sessions_data_cached() -> dict:
-    global _session_cache, _session_cache_loaded
-    now = time.time()
-    if _session_cache and now - _session_cache_loaded < _SESSION_CACHE_TTL:
-        return _session_cache
-    _session_cache = _load_sessions_data()
-    _session_cache_loaded = now
-    return _session_cache
+def _load_sessions_from_disk() -> dict:
+    """启动时从磁盘加载加密会话（失败则返回空）"""
+    if not _session_file.exists():
+        return {}
+    try:
+        encrypted_data = _session_file.read_text(encoding="utf-8")
+        return _decrypt_session(encrypted_data, _derive_session_key())
+    except Exception:
+        return {}
 
 
-def _save_and_cache(sessions: dict) -> None:
-    global _session_cache, _session_cache_loaded
-    _save_sessions_data(sessions)
-    _session_cache = sessions
-    _session_cache_loaded = time.time()
-
-
-def _invalidate_cache() -> None:
-    global _session_cache, _session_cache_loaded
-    _session_cache = {}
-    _session_cache_loaded = 0.0
-
-
-def _load_sessions() -> dict:
-    lock = _session_lock
-    with lock:
-        return _load_sessions_data_cached()
-
-
-def _save_sessions(sessions: dict) -> None:
-    lock = _session_lock
-    with lock:
-        _save_and_cache(sessions)
+def _persist_sessions() -> None:
+    """关闭时将缓存中的会话加密写入磁盘"""
+    with _session_lock:
+        if _session_cache:
+            try:
+                _save_sessions_data(_session_cache)
+            except Exception:
+                pass
 
 
 def create_session(username: str, ip: str = "unknown") -> str:
-    """创建新会话"""
-    lock = _session_lock
-    with lock:
-        sessions = _load_sessions_data_cached()
+    """创建新会话（纯内存）"""
+    with _session_lock:
         token = os.urandom(32).hex()
         now = time.time()
-        sessions[token] = {
+        _session_cache[token] = {
             "username": username,
             "created": now,
             "last_activity": now,
             "ip": ip,
         }
-        _save_and_cache(sessions)
     return token
 
 
 def validate_session(token: str) -> str | None:
-    """验证会话，返回用户名或 None（内存读取，仅超时清理时写盘）"""
+    """验证会话，返回用户名或 None（纯内存读取）"""
     if not token:
         return None
-    lock = _session_lock
-    with lock:
-        sessions = _load_sessions_data_cached()
-        session = sessions.get(token)
+    with _session_lock:
+        session = _session_cache.get(token)
         if not session:
             return None
         if time.time() - session["last_activity"] > SESSION_TIMEOUT:
-            del sessions[token]
-            _save_and_cache(sessions)
+            del _session_cache[token]
             return None
         return session["username"]
 
 
 def peek_session(token: str) -> str | None:
-    """只读验证会话，不更新 last_activity，不落盘"""
+    """只读验证会话，不更新 last_activity"""
     if not token:
         return None
-    lock = _session_lock
-    with lock:
-        sessions = _load_sessions_data_cached()
-        session = sessions.get(token)
-        if not session:
-            return None
-        if time.time() - session["last_activity"] > SESSION_TIMEOUT:
+    with _session_lock:
+        session = _session_cache.get(token)
+        if not session or time.time() - session["last_activity"] > SESSION_TIMEOUT:
             return None
         return session["username"]
 
 
 def invalidate_session(token: str) -> None:
     """使会话失效"""
-    lock = _session_lock
-    with lock:
-        sessions = _load_sessions_data_cached()
-        sessions.pop(token, None)
-        _save_and_cache(sessions)
+    with _session_lock:
+        _session_cache.pop(token, None)
 
 
 def cleanup_expired_sessions() -> None:
-    """清理过期会话"""
-    lock = _session_lock
-    with lock:
-        sessions = _load_sessions_data_cached()
+    """清理过期会话（纯内存）"""
+    with _session_lock:
         now = time.time()
-        expired_tokens = [
-            token for token, session in sessions.items()
-            if now - session["last_activity"] > SESSION_TIMEOUT
-        ]
-        for token in expired_tokens:
-            del sessions[token]
-        if expired_tokens:
-            _save_and_cache(sessions)
-            logger.info(f"清理了 {len(expired_tokens)} 个过期会话")
+        expired = [t for t, s in _session_cache.items()
+                    if now - s["last_activity"] > SESSION_TIMEOUT]
+        for t in expired:
+            del _session_cache[t]
+        if expired:
+            logger.info(f"清理了 {len(expired)} 个过期会话")
 
-# ─── 速率限制（内存化 + 定时刷盘）───────────────────────
+# ─── 速率限制（纯内存，无磁盘写入）│ SD 卡友好 ────────────
 
 _rate_limit_mem: dict = {}
 _rate_limit_lock = threading.Lock()
-_rate_limit_flush_interval = 300
-_rate_limit_last_flush = 0.0
-
-
-def _load_rate_limits() -> None:
-    global _rate_limit_mem
-    _rate_limit_mem = {}
-    try:
-        if RATE_LIMIT_FILE.exists():
-            _rate_limit_mem.update(_load_json(RATE_LIMIT_FILE))
-    except Exception:
-        pass
-
-
-def _flush_rate_limits() -> None:
-    global _rate_limit_last_flush
-    now = time.time()
-    if now - _rate_limit_last_flush < _rate_limit_flush_interval:
-        return
-    _rate_limit_last_flush = now
-    try:
-        RATE_LIMIT_FILE.write_text(json.dumps(_rate_limit_mem), encoding="utf-8")
-    except Exception:
-        pass
 
 
 def _cleanup_expired(now: float, window: float) -> None:
@@ -407,9 +338,7 @@ def check_rate_limit(client_ip: str, endpoint: str = "api") -> bool:
         else:
             _rate_limit_mem[key]["count"] += 1
             if _rate_limit_mem[key]["count"] > RATE_LIMIT_MAX:
-                _flush_rate_limits()
                 return False
-    _flush_rate_limits()
     return True
 
 
@@ -420,16 +349,14 @@ def check_login_limit(client_ip: str) -> bool:
         _cleanup_expired(now, LOGIN_LOCKOUT_SECONDS)
         if key in _rate_limit_mem:
             if _rate_limit_mem[key]["count"] >= MAX_LOGIN_ATTEMPTS:
-                _flush_rate_limits()
                 return False
             _rate_limit_mem[key]["count"] += 1
         else:
             _rate_limit_mem[key] = {"count": 1, "start": now}
-    _flush_rate_limits()
     return True
 
 
-# ─── 审计日志（内存缓冲 + 定时刷盘 + 按天轮转）────────────
+# ─── 审计日志（内存缓冲 + 定时刷盘 + 按天命名）─────────
 
 
 _audit_buffer: list[str] = []
@@ -464,20 +391,9 @@ def _flush_audit_log() -> None:
             return
         entries = _audit_buffer[:]
         _audit_buffer.clear()
-    # 按天轮转：检查现有文件日期
     today = datetime.now().strftime("%Y-%m-%d")
-    if AUDIT_FILE.exists():
-        try:
-            first_line = AUDIT_FILE.read_text(encoding="utf-8").split("\n", 1)[0]
-            if first_line:
-                entry_date = json.loads(first_line).get("timestamp", "")[:10]
-                if entry_date and entry_date != today:
-                    archive_name = AUDIT_FILE.with_name(f"audit_{entry_date}.log")
-                    if not archive_name.exists():
-                        AUDIT_FILE.rename(archive_name)
-        except Exception:
-            pass
-    with open(AUDIT_FILE, "a", encoding="utf-8") as f:
+    log_file = AUDIT_FILE.parent / f"audit_{today}.log"
+    with open(log_file, "a", encoding="utf-8") as f:
         f.writelines(entries)
 
 
