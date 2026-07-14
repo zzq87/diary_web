@@ -11,21 +11,30 @@ ExecStart=/home/pi/.venv/bin/python main.py
 Restart=on-failure
 RestartSec=10
 
-# 保护 – 禁止 fork 提权
+# 安全保护
 NoNewPrivileges=yes
-PrivateTmp=no
+PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/home/pi/diary_web/data /home/pi/diary_web/config /tmp
 ReadOnlyPaths=/home/pi/diary_web/static /home/pi/diary_web/app
 
+# OOM 保护：内存不足时优先杀掉其他进程
+OOMScoreAdjust=-500
+
 # SD 卡保护：减少日志写入
 StandardOutput=null
 StandardError=journal
 
+# CPU/IO 权重（生产环境优先）
+CPUSchedulingPolicy=idle
+IOSchedulingClass=idle
+
 # Pi 优化环境变量
 Environment=DIARY_PORT=9000
 Environment=DIARY_PBKDF2_ITERATIONS=150000
+Environment=DIARY_ENCRYPT=true
+Environment=DIARY_SESSION_TIMEOUT=3600
 
 [Install]
 WantedBy=multi-user.target

@@ -1,1141 +1,501 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>📝 本地日记本</title>
-
-    <style>
-        :root {
-            --bg: #f9f7f2;
-            --bg-soft: #f1ede4;
-            --card: #ffffff;
-            --card-hover: #fcfaf7;
-            --primary: #8b6f4e;
-            --primary-light: #a88b6a;
-            --primary-dark: #6d553b;
-            --primary-bg: #f5f0ea;
-            --text: #2c2c2c;
-            --text-secondary: #5e5e5e;
-            --text-muted: #8c8c8c;
-            --border: #e5e0d6;
-            --border-light: #f2efe9;
-            --tag-bg: #f0ebe4;
-            --tag-color: #8b6f4e;
-            --success: #5c9a5c;
-            --success-bg: #edf5ed;
-            --danger: #c4705a;
-            --danger-bg: #fbf0ed;
-            --warning: #d4a55a;
-            --warning-bg: #faf4ea;
-            --skeleton: #e8e3da;
-            --skeleton-shine: #f5f2ec;
-            --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
-            --shadow: 0 1px 4px rgba(0,0,0,0.05), 0 2px 12px rgba(0,0,0,0.04);
-            --shadow-lg: 0 4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.03);
-            --radius: 14px;
-            --radius-sm: 10px;
-            --radius-xs: 8px;
-            --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.65;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-        }
-
-        ::selection { background: var(--primary-bg); color: var(--primary-dark); }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #d0ccc4; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #b8b4ac; }
-
-        /* ─── Keyframes ─── */
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes fadeInUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes scaleIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
-        @keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
-        @keyframes dotPulse { 0%, 80%, 100% { opacity: 0.2; transform: scale(0.6); } 40% { opacity: 1; transform: scale(1); } }
-
-        /* ─── Skeleton Loading ─── */
-        .skeleton-line {
-            height: 14px; border-radius: 7px;
-            background: linear-gradient(90deg, var(--skeleton) 0%, var(--skeleton-shine) 40%, var(--skeleton) 70%);
-            background-size: 800px 100%;
-            animation: shimmer 1.8s linear infinite;
-        }
-        .skeleton-item {
-            background: var(--card); border-radius: var(--radius);
-            padding: 1.25rem 1.5rem; border: 1px solid var(--border-light);
-            display: flex; flex-direction: column; gap: 0.6rem;
-        }
-        .skeleton-item .skeleton-line:first-child { width: 30%; }
-        .skeleton-item .skeleton-line:nth-child(2) { width: 80%; }
-        .skeleton-item .skeleton-line:nth-child(3) { width: 55%; }
-
-        /* ─── Loading Dot ─── */
-        .loading-dots { display: flex; gap: 4px; justify-content: center; padding: 2rem 0; }
-        .loading-dots span {
-            width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted);
-            display: inline-block; animation: dotPulse 1.2s ease-in-out infinite;
-        }
-        .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
-        .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
-
-        /* ─── Empty State ─── */
-        .empty-state {
-            text-align: center; padding: 4rem 2rem;
-            color: var(--text-muted);
-        }
-        .empty-state .empty-icon { font-size: 2.8rem; margin-bottom: 1rem; opacity: 0.6; }
-        .empty-state .empty-title { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.35rem; }
-        .empty-state .empty-desc { font-size: 0.85rem; }
-
-        /* ─── Focus Ring ─── */
-        :focus-visible {
-            outline: 2px solid var(--primary);
-            outline-offset: 2px;
-            border-radius: 4px;
-        }
-        button:focus:not(:focus-visible), input:focus:not(:focus-visible) { outline: none; }
-
-        /* ─── Lock Screen ─── */
-        #lockScreen {
-            display: none; position: fixed; inset: 0;
-            background: rgba(24, 22, 20, 0.82);
-            z-index: 10000; justify-content: center; align-items: center;
-            animation: fadeIn 0.25s ease;
-        }
-        #lockScreen.show { display: flex; }
-
-        .lock-box {
-            background: var(--card);
-            border-radius: 22px; padding: 2.5rem 2rem;
-            text-align: center; max-width: 380px; width: 90%;
-            box-shadow: var(--shadow-lg); animation: scaleIn 0.3s ease;
-        }
-        .lock-box .lock-icon { font-size: 2rem; margin-bottom: 0.75rem; }
-        .lock-box h2 { margin-bottom: 0.35rem; font-size: 1.3rem; font-weight: 700; }
-        .lock-box p { color: var(--text-muted); margin-bottom: 1.25rem; font-size: 0.88rem; }
-        .lock-box input {
-            width: 100%; padding: 0.75rem 1rem;
-            border: 1.5px solid var(--border); border-radius: var(--radius-sm);
-            font-size: 0.95rem; margin-bottom: 0.75rem; transition: all var(--transition);
-            background: var(--bg); color: var(--text);
-        }
-        .lock-box input:focus { border-color: var(--primary); background: var(--card); box-shadow: 0 0 0 3px var(--primary-bg); }
-
-        /* ─── Login ─── */
-        #loginPage {
-            display: none; min-height: 100vh;
-            justify-content: center; align-items: center;
-            background: radial-gradient(ellipse at top, #f5f0e8 0%, var(--bg) 60%);
-            padding: 2rem;
-        }
-        #loginPage.show { display: flex; }
-
-        .login-card {
-            background: var(--card);
-            border-radius: 24px; padding: 2.5rem 2.2rem 2rem;
-            max-width: 420px; width: 100%;
-            box-shadow: var(--shadow-lg);
-            animation: scaleIn 0.35s ease;
-            border: 1px solid var(--border-light);
-        }
-
-        .login-card .login-icon { text-align: center; font-size: 2.4rem; margin-bottom: 0.35rem; }
-        .login-card h1 {
-            text-align: center; margin-bottom: 0.15rem;
-            font-size: 1.6rem; font-weight: 700;
-            color: var(--primary-dark);
-        }
-        .login-card .subtitle {
-            text-align: center;
-            color: var(--text-muted); margin-bottom: 2rem;
-            font-size: 0.82rem;
-        }
-
-        .form-group { margin-bottom: 1rem; }
-        .form-group label {
-            display: block; margin-bottom: 0.3rem;
-            font-weight: 500; font-size: 0.82rem;
-            color: var(--text-secondary);
-        }
-        .form-group input, .form-group select {
-            width: 100%; padding: 0.7rem 0.9rem;
-            border: 1.5px solid var(--border); border-radius: var(--radius-xs);
-            font-size: 0.92rem; transition: all var(--transition);
-            background: var(--bg); color: var(--text);
-        }
-        .form-group input:focus, .form-group select:focus {
-            border-color: var(--primary); outline: none;
-            background: var(--card); box-shadow: 0 0 0 3px var(--primary-bg);
-        }
-
-        .login-btn {
-            width: 100%; padding: 0.75rem;
-            background: var(--primary); color: white;
-            border: none; border-radius: var(--radius-xs);
-            font-size: 0.95rem; font-weight: 600;
-            cursor: pointer;
-            transition: all var(--transition);
-            margin-top: 0.25rem;
-        }
-        .login-btn:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(139, 111, 78, 0.25); }
-        .login-btn:active { transform: translateY(0); }
-        .login-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-
-        .login-error {
-            background: var(--danger-bg); color: var(--danger);
-            padding: 0.6rem 0.9rem; border-radius: var(--radius-xs);
-            margin-bottom: 0.75rem; display: none;
-            font-size: 0.82rem; line-height: 1.5;
-        }
-
-        .login-footer { text-align: center; margin-top: 1.25rem; font-size: 0.78rem; color: var(--text-muted); }
-        .login-footer a { color: var(--primary); text-decoration: none; font-weight: 600; }
-        .login-footer a:hover { text-decoration: underline; }
-
-        /* ─── Password Warning ─── */
-        .password-warning {
-            background: var(--warning-bg);
-            border: 1px solid #e8d5b0;
-            border-radius: var(--radius);
-            padding: 0.9rem 1.25rem;
-            margin-bottom: 1.25rem;
-            display: none; align-items: center; gap: 0.75rem;
-            animation: fadeIn 0.3s ease;
-        }
-        .password-warning.show { display: flex; }
-        .password-warning .warning-content { flex: 1; }
-        .password-warning .warning-content p { font-size: 0.85rem; color: #7a6530; }
-        .password-warning .close-btn { flex-shrink: 0; cursor: pointer; font-size: 1.1rem; color: var(--text-muted); line-height: 1; padding: 0.25rem; }
-
-        /* ─── Navbar ─── */
-        .navbar {
-            background: rgba(255, 255, 255, 0.9);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border-bottom: 1px solid var(--border-light);
-            padding: 0 1.75rem;
-            display: flex; align-items: center; justify-content: space-between;
-            position: sticky; top: 0; z-index: 100;
-            height: 58px;
-        }
-
-        .nav-left { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
-        .logo { font-size: 1.1rem; font-weight: 700; color: var(--primary-dark); white-space: nowrap; }
-        .encryption-badge {
-            background: var(--success-bg);
-            color: var(--success);
-            padding: 0.12rem 0.5rem;
-            border-radius: 20px;
-            font-size: 0.68rem; font-weight: 600;
-            white-space: nowrap;
-        }
-
-        .nav-links { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; margin: 0 0.75rem; }
-        .nav-links::-webkit-scrollbar { display: none; }
-
-        .nav-link {
-            padding: 0.35rem 0.7rem;
-            border: none; background: none;
-            color: var(--text-muted);
-            cursor: pointer; border-radius: var(--radius-xs);
-            font-size: 0.82rem; font-weight: 500;
-            transition: all var(--transition);
-            white-space: nowrap; position: relative;
-        }
-        .nav-link:hover { color: var(--text); }
-        .nav-link.active {
-            color: var(--primary-dark);
-            font-weight: 600;
-        }
-        .nav-link.active::after {
-            content: ''; position: absolute;
-            bottom: 2px; left: 50%; transform: translateX(-50%);
-            width: 18px; height: 2.5px;
-            border-radius: 2px; background: var(--primary);
-        }
-
-        .nav-right { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
-
-        .user-info {
-            display: flex; align-items: center; gap: 0.3rem;
-            font-size: 0.8rem; color: var(--text-secondary);
-            background: var(--bg-soft);
-            padding: 0.2rem 0.65rem;
-            border-radius: 20px; white-space: nowrap;
-        }
-
-        .search-bar {
-            display: flex; align-items: center;
-            background: var(--bg-soft);
-            border: 1px solid transparent;
-            border-radius: 20px;
-            padding: 0.3rem 0.65rem;
-            width: 180px;
-            transition: all var(--transition);
-        }
-        .search-bar:focus-within { border-color: var(--primary); background: var(--card); box-shadow: 0 0 0 3px var(--primary-bg); width: 220px; }
-        .search-bar input {
-            border: none; background: none; outline: none;
-            width: 100%; font-size: 0.82rem;
-            color: var(--text);
-        }
-        .search-bar input::placeholder { color: var(--text-muted); }
-
-        .lock-btn {
-            width: 38px; height: 38px;
-            display: flex; align-items: center; justify-content: center;
-            background: none; border: 1px solid var(--border); border-radius: 50%;
-            cursor: pointer; font-size: 0.85rem;
-            transition: all var(--transition);
-        }
-        .lock-btn:hover { background: var(--bg-soft); border-color: var(--text-muted); }
-
-        /* ─── Main Content ─── */
-        .main {
-            max-width: 1080px;
-            margin: 0 auto;
-            padding: 1.75rem;
-            min-height: calc(100vh - 58px);
-        }
-
-        .view { display: none; animation: fadeInUp 0.25s ease; }
-        .view.active { display: block; }
-
-        /* ─── Button System ─── */
-        .btn {
-            padding: 0.45rem 0.9rem;
-            border: none; border-radius: var(--radius-xs);
-            cursor: pointer; font-size: 0.82rem; font-weight: 500;
-            transition: all var(--transition);
-            display: inline-flex; align-items: center; gap: 0.3rem;
-            line-height: 1.45; min-height: 36px;
-        }
-        .btn:active { transform: scale(0.98); }
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-primary:hover { background: var(--primary-dark); box-shadow: 0 2px 8px rgba(139, 111, 78, 0.2); }
-        .btn-danger { background: var(--danger); color: white; }
-        .btn-danger:hover { background: #b05a44; box-shadow: 0 2px 8px rgba(196, 112, 90, 0.2); }
-        .btn-secondary { background: var(--bg-soft); color: var(--text); border: 1px solid var(--border); }
-        .btn-secondary:hover { background: #e4e0d8; }
-        .btn-warning { background: var(--warning); color: white; }
-        .btn-warning:hover { background: #c49448; box-shadow: 0 2px 8px rgba(212, 165, 90, 0.2); }
-
-        /* ─── Diary List ─── */
-        .diary-list { display: flex; flex-direction: column; gap: 0.65rem; }
-
-        .diary-item {
-            background: var(--card);
-            border-radius: var(--radius);
-            padding: 1.15rem 1.35rem;
-            box-shadow: var(--shadow-sm);
-            cursor: pointer;
-            transition: all var(--transition);
-            border: 1px solid var(--border-light);
-            position: relative; overflow: hidden;
-        }
-        .diary-item::before {
-            content: ''; position: absolute;
-            left: 0; top: 50%; transform: translateY(-50%);
-            width: 3px; height: 60%;
-            border-radius: 0 3px 3px 0;
-            background: var(--primary-light);
-            opacity: 0;
-            transition: opacity var(--transition);
-        }
-        .diary-item:hover::before { opacity: 1; }
-        .diary-item:hover {
-            transform: translateY(-1px);
-            box-shadow: var(--shadow);
-            background: var(--card-hover);
-        }
-        .diary-item:active { transform: translateY(0); }
-
-        .diary-item .date {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-bottom: 0.15rem;
-            font-weight: 500;
-        }
-        .diary-item .preview {
-            font-size: 0.88rem;
-            color: var(--text-secondary);
-            overflow: hidden; text-overflow: ellipsis;
-            white-space: nowrap; line-height: 1.5;
-        }
-        .diary-item .tags { margin-top: 0.45rem; display: flex; gap: 0.3rem; flex-wrap: wrap; }
-
-        .tag {
-            background: var(--tag-bg);
-            color: var(--tag-color);
-            padding: 0.1rem 0.45rem;
-            border-radius: 20px;
-            font-size: 0.7rem; font-weight: 500;
-            line-height: 1.6;
-        }
-
-        /* ─── Editor ─── */
-        .editor-container {
-            background: var(--card);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            border: 1px solid var(--border-light);
-            overflow: hidden;
-        }
-
-        .editor-header {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 0.65rem 1.25rem;
-            border-bottom: 1px solid var(--border-light);
-            background: var(--card);
-            gap: 0.75rem;
-        }
-
-        .date-input {
-            padding: 0.4rem 0.65rem;
-            border: 1px solid var(--border);
-            border-radius: var(--radius-xs);
-            font-size: 0.88rem;
-            color: var(--text);
-            background: var(--bg);
-            transition: border-color var(--transition);
-        }
-        .date-input:focus { border-color: var(--primary); outline: none; }
-
-        .editor-actions { display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; }
-
-        .editor-body { min-height: 480px; }
-
-        .editor-textarea {
-            width: 100%; min-height: 480px;
-            padding: 1.35rem;
-            border: none; resize: none;
-            font-family: "JetBrains Mono", "Fira Code", "SF Mono", Consolas, monospace;
-            font-size: 0.88rem;
-            line-height: 1.8;
-            outline: none;
-            color: var(--text);
-            background: var(--card);
-            tab-size: 4;
-        }
-        .editor-textarea::placeholder { color: #c5c0b6; }
-
-        .autosave-indicator {
-            font-size: 0.72rem;
-            color: var(--text-muted);
-            transition: color var(--transition);
-            min-width: 2.5rem; text-align: right;
-        }
-        .autosave-indicator.saving { color: var(--warning); animation: dotPulse 1s infinite; }
-        .autosave-indicator.saved { color: var(--success); }
-
-        /* ─── Calendar ─── */
-        .calendar {
-            background: var(--card);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            padding: 1.5rem;
-            border: 1px solid var(--border-light);
-            max-width: 480px;
-        }
-
-        .calendar-header {
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 1.25rem;
-        }
-        .calendar-header h2 { font-size: 1.1rem; font-weight: 600; }
-        .calendar-nav { display: flex; gap: 0.3rem; }
-        .calendar-nav button {
-            width: 34px; height: 34px;
-            display: flex; align-items: center; justify-content: center;
-            border: 1px solid var(--border);
-            background: var(--card);
-            border-radius: 50%;
-            cursor: pointer; font-size: 0.85rem;
-            transition: all var(--transition);
-        }
-        .calendar-nav button:hover { background: var(--bg-soft); border-color: var(--text-muted); }
-
-        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
-        .calendar-day-header {
-            text-align: center; padding: 0.4rem 0;
-            font-weight: 600; font-size: 0.75rem;
-            color: var(--text-muted);
-        }
-
-        .calendar-day {
-            aspect-ratio: 1;
-            display: flex; align-items: center; justify-content: center;
-            border-radius: 50%;
-            cursor: pointer;
-            transition: all var(--transition);
-            position: relative;
-            font-size: 0.88rem; font-weight: 500;
-        }
-        .calendar-day:hover { background: var(--bg-soft); }
-        .calendar-day.today {
-            background: var(--primary); color: white; font-weight: 700;
-            box-shadow: 0 2px 6px rgba(139, 111, 78, 0.3);
-        }
-        .calendar-day.today:hover { background: var(--primary-dark); }
-        .calendar-day.has-entry { font-weight: 600; color: var(--primary-dark); }
-        .calendar-day.has-entry::after {
-            content: ''; position: absolute;
-            bottom: 3px; left: 50%; transform: translateX(-50%);
-            width: 4px; height: 4px;
-            border-radius: 50%;
-            background: var(--primary-light);
-        }
-        .calendar-day.today.has-entry::after { background: rgba(255,255,255,0.8); }
-
-        /* ─── Stats ─── */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-            gap: 0.85rem;
-            margin-bottom: 1.75rem;
-        }
-
-        .stat-card {
-            background: var(--card);
-            border-radius: var(--radius);
-            padding: 1.35rem 1rem;
-            box-shadow: var(--shadow-sm);
-            text-align: center;
-            border: 1px solid var(--border-light);
-            transition: all var(--transition);
-        }
-        .stat-card:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
-
-        .stat-value { font-size: 2rem; font-weight: 700; color: var(--primary); line-height: 1.15; }
-        .stat-label { color: var(--text-muted); margin-top: 0.2rem; font-size: 0.8rem; }
-
-        .tags-cloud {
-            background: var(--card);
-            border-radius: var(--radius);
-            padding: 1.35rem;
-            box-shadow: var(--shadow-sm);
-            border: 1px solid var(--border-light);
-        }
-        .tags-cloud h3 { margin-bottom: 0.85rem; font-size: 0.95rem; font-weight: 600; }
-        .tag-item {
-            display: inline-block;
-            margin: 0.2rem;
-            padding: 0.3rem 0.7rem;
-            background: var(--tag-bg);
-            color: var(--tag-color);
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 0.78rem; font-weight: 500;
-            transition: all var(--transition);
-        }
-        .tag-item:hover { background: var(--primary); color: white; transform: translateY(-1px); }
-
-        /* ─── Audit Table ─── */
-        .audit-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            background: var(--card);
-            border-radius: var(--radius);
-            overflow: hidden;
-            box-shadow: var(--shadow-sm);
-            border: 1px solid var(--border-light);
-        }
-        .audit-table th, .audit-table td {
-            padding: 0.6rem 0.9rem;
-            text-align: left;
-            border-bottom: 1px solid var(--border-light);
-            font-size: 0.8rem;
-        }
-        .audit-table th {
-            background: var(--bg-soft);
-            font-weight: 600;
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            letter-spacing: 0.02em;
-        }
-        .audit-table tr:last-child td { border-bottom: none; }
-        .audit-table tr:hover td { background: var(--card-hover); }
-
-        /* ─── Settings ─── */
-        .settings-panel {
-            background: var(--card);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow-sm);
-            padding: 1.75rem;
-            border: 1px solid var(--border-light);
-            max-width: 640px;
-        }
-
-        .settings-section {
-            margin-bottom: 1.75rem;
-            padding-bottom: 1.5rem;
-            border-bottom: 1px solid var(--border-light);
-        }
-        .settings-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-        .settings-section h3 { margin-bottom: 0.85rem; font-size: 0.95rem; font-weight: 600; color: var(--text); }
-        .settings-section h3:first-child { margin-top: 0; }
-
-        .setting-row {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 0.6rem 0;
-            gap: 1rem;
-        }
-        .setting-label { font-size: 0.88rem; font-weight: 500; }
-        .setting-desc { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.1rem; }
-        .setting-value { font-weight: 500; color: var(--primary); font-size: 0.85rem; }
-
-        /* ─── User Management ─── */
-        .user-role-badge {
-            display: inline-block;
-            padding: 0.12rem 0.5rem;
-            border-radius: 20px;
-            font-size: 0.72rem; font-weight: 600;
-        }
-        .user-role-badge.admin { background: var(--primary-bg); color: var(--primary-dark); }
-        .user-role-badge.user { background: var(--bg-soft); color: var(--text-muted); }
-        .user-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; }
-        .user-actions .btn { padding: 0.2rem 0.45rem; font-size: 0.72rem; min-height: 30px; }
-
-        /* ─── Modal ─── */
-        .modal-overlay {
-            display: none; position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.45);
-            z-index: 1000;
-            align-items: center; justify-content: center;
-            padding: 2rem;
-        }
-        .modal-overlay.show { display: flex; }
-        .modal {
-            background: var(--card);
-            border-radius: 20px;
-            padding: 1.75rem;
-            max-width: 400px;
-            width: 100%;
-            box-shadow: var(--shadow-lg);
-            animation: scaleIn 0.2s ease;
-        }
-        .modal h3 { margin-bottom: 1.1rem; font-size: 1.05rem; font-weight: 600; }
-        .modal-actions { display: flex; gap: 0.4rem; margin-top: 1.25rem; justify-content: flex-end; }
-
-        /* ─── Toast ─── */
-        .toast {
-            position: fixed;
-            bottom: 2rem; left: 50%;
-            transform: translateX(-50%) translateY(16px);
-            color: white;
-            padding: 0.65rem 1.35rem;
-            border-radius: 100px;
-            box-shadow: var(--shadow-lg);
-            opacity: 0;
-            transition: all 0.25s ease;
-            z-index: 10000;
-            font-size: 0.85rem; font-weight: 500;
-            pointer-events: none; white-space: nowrap;
-        }
-        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-        .toast.success { background: var(--success); }
-        .toast.error { background: var(--danger); }
-        .toast.warning { background: var(--warning); }
-
-        /* ─── Mobile Bottom Nav ─── */
-        .mobile-bottom-nav { display: none; }
-
-        /* ─── Responsive ─── */
-        @media (max-width: 1024px) {
-            .editor-body { min-height: auto; }
-            .editor-textarea { min-height: 300px; }
-            .nav-links { margin: 0 0.4rem; }
-            .search-bar { width: 150px; }
-            .search-bar:focus-within { width: 190px; }
-        }
-
-        @media (max-width: 768px) {
-            .navbar { padding: 0 0.85rem; height: 52px; }
-            .nav-left { gap: 0.4rem; }
-            .logo { font-size: 0.95rem; }
-            .encryption-badge { display: none; }
-            .nav-links { display: none; }
-            .nav-right { gap: 0.3rem; }
-            .search-bar { width: 110px; padding: 0.25rem 0.5rem; }
-            .search-bar:focus-within { width: 140px; }
-            .user-info { padding: 0.15rem 0.45rem; font-size: 0.72rem; }
-            .lock-btn { width: 34px; height: 34px; font-size: 0.8rem; }
-
-            .main { padding: 1rem 0.85rem 5.5rem; }
-
-            .diary-item { padding: 1rem 1.1rem; }
-            .diary-item .preview { white-space: normal; -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
-
-            .editor-header { flex-direction: column; align-items: stretch; padding: 0.6rem 0.85rem; }
-            .editor-actions { justify-content: flex-start; }
-            .editor-textarea { padding: 0.85rem; min-height: 260px; }
-            .btn { padding: 0.45rem 0.7rem; font-size: 0.78rem; min-height: 40px; }
-
-            .calendar { padding: 1rem; max-width: none; }
-            .calendar-day { font-size: 0.82rem; }
-            .calendar-nav button { width: 36px; height: 36px; }
-
-            .stats-grid { grid-template-columns: 1fr 1fr; gap: 0.6rem; }
-            .stat-card { padding: 1rem 0.5rem; }
-            .stat-value { font-size: 1.6rem; }
-
-            .settings-panel { padding: 1.15rem; }
-            .setting-row { flex-direction: column; align-items: flex-start; gap: 0.35rem; }
-
-            .mobile-bottom-nav {
-                display: flex !important;
-                position: fixed;
-                bottom: 0; left: 0; right: 0;
-                height: 52px;
-                background: rgba(255,255,255,0.94);
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
-                border-top: 1px solid var(--border-light);
-                box-shadow: 0 -1px 6px rgba(0,0,0,0.03);
-                z-index: 999;
-                padding-bottom: env(safe-area-inset-bottom, 0);
-            }
-            .mobile-nav-item {
-                flex: 1;
-                display: flex; flex-direction: column;
-                align-items: center; justify-content: center;
-                color: var(--text-muted);
-                font-size: 0.62rem; text-decoration: none;
-                cursor: pointer; gap: 0;
-                transition: color var(--transition);
-                padding: 0.2rem 0;
-                -webkit-tap-highlight-color: transparent;
-            }
-            .mobile-nav-item .icon { font-size: 1.15rem; transition: transform var(--transition); }
-            .mobile-nav-item.active { color: var(--primary); }
-            .mobile-nav-item.active .icon { transform: scale(1.08); }
-
-            .toast { font-size: 0.8rem; padding: 0.55rem 1.1rem; bottom: 5rem; }
-            .diary-list { gap: 0.5rem; }
-            .diary-item .date { font-size: 0.7rem; }
-            .diary-item .preview { font-size: 0.82rem; }
-            .tag { font-size: 0.65rem; }
-
-            .form-group input, .form-group select { font-size: 1rem; }
-            .modal { margin: 0 1rem; padding: 1.25rem; }
-            .audit-table th, .audit-table td { padding: 0.5rem 0.6rem; font-size: 0.75rem; }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after {
-                animation-duration: 0.01ms !important;
-                transition-duration: 0.01ms !important;
-            }
-            .navbar, #lockScreen, .modal-overlay, .mobile-bottom-nav {
-                backdrop-filter: none !important;
-                -webkit-backdrop-filter: none !important;
-            }
-            #lockScreen { background: rgba(24, 22, 20, 0.9); }
-            .navbar { background: rgba(255, 255, 255, 0.98); }
-            .modal-overlay { background: rgba(0, 0, 0, 0.5); }
-            .mobile-bottom-nav { background: rgba(255, 255, 255, 0.99); }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>📝 本地日记本</title>
+<link rel="stylesheet" href="/static/bootstrap.min.css">
+<style>
+:root {
+  --bs-primary: #8b6f4e; --bs-primary-rgb: 139,111,78;
+  --bs-primary-bg-subtle: #f5f0ea; --bs-primary-text-emphasis: #6d553b;
+  --bs-danger: #c4705a; --bs-danger-rgb: 196,112,90;
+  --bs-success: #5c9a5c; --bs-success-rgb: 92,154,92;
+  --bs-warning: #d4a55a; --bs-warning-rgb: 212,165,90;
+  --bs-body-bg: #f9f7f2; --bs-body-bg-rgb: 249,247,242;
+  --bs-body-color: #2c2c2c; --bs-body-color-rgb: 44,44,44;
+  --bs-secondary-color: #5e5e5e;
+  --bs-tertiary-color: #8c8c8c;
+  --bs-border-color: #e5e0d6;
+  --bs-border-color-subtle: #f2efe9;
+  --bs-border-radius: 14px; --bs-border-radius-sm: 10px; --bs-border-radius-lg: 20px;
+  --bs-box-shadow: 0 1px 4px rgba(0,0,0,0.05), 0 2px 12px rgba(0,0,0,0.04);
+  --bs-box-shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --bs-box-shadow-lg: 0 4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.03);
+  --bg: #f9f7f2; --bg-soft: #f1ede4; --card: #ffffff;
+  --primary: #8b6f4e; --primary-dark: #6d553b;
+  --text: #2c2c2c; --text-secondary: #5e5e5e; --text-muted: #8c8c8c;
+  --border: #e5e0d6; --border-light: #f2efe9;
+  --tag-bg: #f0ebe4; --tag-color: #8b6f4e;
+  --success: #5c9a5c; --danger: #c4705a; --warning: #d4a55a;
+  --skeleton: #e8e3da; --skeleton-shine: #f5f2ec;
+  --shadow: 0 1px 4px rgba(0,0,0,0.05), 0 2px 12px rgba(0,0,0,0.04);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-lg: 0 4px 20px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.03);
+  --radius: 14px; --radius-sm: 10px; --radius-xs: 8px;
+  --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; }
+::selection { background: var(--primary-bg, #f5f0ea); color: var(--primary-dark); }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d0ccc4; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #b8b4ac; }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes scaleIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+@keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+@keyframes dotPulse { 0%, 80%, 100% { opacity: 0.2; transform: scale(0.6); } 40% { opacity: 1; transform: scale(1); } }
+
+.skeleton-line { height: 14px; border-radius: 7px; background: linear-gradient(90deg, var(--skeleton) 0%, var(--skeleton-shine) 40%, var(--skeleton) 70%); background-size: 800px 100%; animation: shimmer 1.8s linear infinite; }
+.skeleton-item { background: var(--card); border-radius: var(--radius); padding: 1.25rem 1.5rem; border: 1px solid var(--border-light); display: flex; flex-direction: column; gap: 0.6rem; }
+.skeleton-item .skeleton-line:first-child { width: 30%; }
+.skeleton-item .skeleton-line:nth-child(2) { width: 80%; }
+.skeleton-item .skeleton-line:nth-child(3) { width: 55%; }
+
+.loading-dots { display: flex; gap: 4px; justify-content: center; padding: 2rem 0; }
+.loading-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); display: inline-block; animation: dotPulse 1.2s ease-in-out infinite; }
+.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+.empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-muted); }
+.empty-state .empty-icon { font-size: 2.8rem; margin-bottom: 1rem; opacity: 0.6; }
+.empty-state .empty-title { font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.35rem; }
+.empty-state .empty-desc { font-size: 0.85rem; }
+
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+button:focus:not(:focus-visible), input:focus:not(:focus-visible) { outline: none; }
+
+#lockScreen { display: none; position: fixed; inset: 0; background: rgba(24,22,20,0.82); z-index: 10000; justify-content: center; align-items: center; animation: fadeIn 0.25s ease; }
+#lockScreen.show { display: flex; }
+#loginPage { display: none !important; }
+#loginPage.show { display: flex !important; }
+
+.password-warning { background: var(--warning-bg, #faf4ea); border: 1px solid #e8d5b0; border-radius: var(--radius); padding: 0.9rem 1.25rem; margin-bottom: 1.25rem; display: none; align-items: center; gap: 0.75rem; animation: fadeIn 0.3s ease; }
+.password-warning.show { display: flex; }
+.password-warning .warning-content { flex: 1; }
+
+.app-nav-link { padding: 0.35rem 0.7rem; border: none; background: none; color: var(--text-muted); cursor: pointer; border-radius: var(--radius-xs); font-size: 0.82rem; font-weight: 500; transition: all var(--transition); white-space: nowrap; position: relative; }
+.app-nav-link:hover { color: var(--text); }
+.app-nav-link.active { color: var(--primary-dark); font-weight: 600; }
+.app-nav-link.active::after { content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 18px; height: 2.5px; border-radius: 2px; background: var(--primary); }
+
+.view { display: none; animation: fadeInUp 0.25s ease; }
+.view.active { display: block; }
+
+.diary-list { display: flex; flex-direction: column; gap: 0.65rem; }
+.diary-item { background: var(--card); border-radius: var(--radius); padding: 1.15rem 1.35rem; box-shadow: var(--shadow-sm); cursor: pointer; transition: all var(--transition); border: 1px solid var(--border-light); position: relative; overflow: hidden; }
+.diary-item::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 60%; border-radius: 0 3px 3px 0; background: var(--primary-light, #a88b6a); opacity: 0; transition: opacity var(--transition); }
+.diary-item:hover::before { opacity: 1; }
+.diary-item:hover { transform: translateY(-1px); box-shadow: var(--shadow); background: var(--card-hover, #fcfaf7); }
+.diary-item .date { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.15rem; font-weight: 500; }
+.diary-item .preview { font-size: 0.88rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.5; }
+.diary-item .tags { margin-top: 0.45rem; display: flex; gap: 0.3rem; flex-wrap: wrap; }
+
+.editor-textarea { width: 100%; min-height: 480px; padding: 1.35rem; border: none; resize: none; font-family: "JetBrains Mono", "Fira Code", "SF Mono", Consolas, monospace; font-size: 0.88rem; line-height: 1.8; outline: none; color: var(--text); background: var(--card); }
+.editor-textarea::placeholder { color: #c5c0b6; }
+.autosave-indicator { font-size: 0.72rem; color: var(--text-muted); transition: color var(--transition); min-width: 2.5rem; text-align: right; }
+.autosave-indicator.saving { color: var(--warning); animation: dotPulse 1s infinite; }
+.autosave-indicator.saved { color: var(--success); }
+
+.calendar { max-width: 480px; } 
+.calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.calendar-day-header { text-align: center; padding: 0.4rem 0; font-weight: 600; font-size: 0.75rem; color: var(--text-muted); }
+.calendar-day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 50%; cursor: pointer; transition: all var(--transition); position: relative; font-size: 0.88rem; font-weight: 500; }
+.calendar-day:hover { background: var(--bg-soft); }
+.calendar-day.today { background: var(--primary); color: white; font-weight: 700; box-shadow: 0 2px 6px rgba(139,111,78,0.3); }
+.calendar-day.today:hover { background: var(--primary-dark); }
+.calendar-day.has-entry { font-weight: 600; color: var(--primary-dark); }
+.calendar-day.has-entry::after { content: ''; position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; border-radius: 50%; background: var(--primary-light, #a88b6a); }
+.calendar-day.today.has-entry::after { background: rgba(255,255,255,0.8); }
+
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.85rem; margin-bottom: 1.75rem; }
+.tags-cloud h3 { margin-bottom: 0.85rem; font-size: 0.95rem; font-weight: 600; }
+.tag-item { display: inline-block; margin: 0.2rem; padding: 0.3rem 0.7rem; background: var(--tag-bg); color: var(--tag-color); border-radius: 20px; cursor: pointer; font-size: 0.78rem; font-weight: 500; transition: all var(--transition); }
+.tag-item:hover { background: var(--primary); color: white; transform: translateY(-1px); }
+
+.toast-custom { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%) translateY(16px); color: white; padding: 0.65rem 1.35rem; border-radius: 100px; box-shadow: var(--shadow-lg); opacity: 0; transition: all 0.25s ease; z-index: 10000; font-size: 0.85rem; font-weight: 500; pointer-events: none; white-space: nowrap; }
+.toast-custom.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast-custom.toast-success { background: var(--success); }
+.toast-custom.toast-error { background: var(--danger); }
+.toast-custom.toast-warning { background: var(--warning); }
+
+.mobile-bottom-nav { display: none; }
+#searchBar:focus-within { border-color: var(--primary) !important; background: var(--card) !important; }
+#searchBar:focus-within input { width: 220px !important; }
+.user-role-badge { display: inline-block; padding: 0.12rem 0.5rem; border-radius: 20px; font-size: 0.72rem; font-weight: 600; }
+.user-role-badge.admin { background: var(--primary-bg, #f5f0ea); color: var(--primary-dark); }
+.user-role-badge.user { background: var(--bg-soft); color: var(--text-muted); }
+.user-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.stat-value { font-size: 2rem; font-weight: 700; color: var(--primary); line-height: 1.15; }
+.stat-label { color: var(--text-muted); margin-top: 0.2rem; font-size: 0.8rem; }
+
+@media (max-width: 768px) {
+  #desktopNav { display: none !important; }
+  #searchBar input { width: 110px !important; }
+  #searchBar:focus-within input { width: 140px !important; }
+  .editor-textarea { min-height: 300px; }
+  .main-content { padding: 1rem 0.85rem 5.5rem; }
+  .diary-item { padding: 1rem 1.1rem; }
+  .diary-item .preview { white-space: normal; -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+  .editor-textarea { padding: 0.85rem; min-height: 260px; }
+  .calendar-day { font-size: 0.82rem; }
+  .stats-grid { grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+  .stat-value { font-size: 1.6rem; }
+  .mobile-bottom-nav { display: flex !important; position: fixed; bottom: 0; left: 0; right: 0; height: 52px; background: rgba(255,255,255,0.94); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-top: 1px solid var(--border-light); z-index: 999; padding-bottom: env(safe-area-inset-bottom,0); }
+  .mobile-nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); font-size: 0.62rem; text-decoration: none; cursor: pointer; gap: 0; transition: color var(--transition); padding: 0.2rem 0; -webkit-tap-highlight-color: transparent; }
+  .mobile-nav-item .icon { font-size: 1.15rem; transition: transform var(--transition); }
+  .mobile-nav-item.active { color: var(--primary); }
+  .mobile-nav-item.active .icon { transform: scale(1.08); }
+  .toast-custom { font-size: 0.8rem; padding: 0.55rem 1.1rem; bottom: 5rem; }
+  .diary-list { gap: 0.5rem; }
+  .diary-item .date { font-size: 0.7rem; }
+  .diary-item .preview { font-size: 0.82rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  .modal-backdrop.show, #lockScreen { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  #lockScreen { background: rgba(24,22,20,0.9); }
+}
+</style>
 </head>
 <body>
-    <!-- 登录页面 -->
-    <div id="loginPage" class="show">
-        <div class="login-card">
-            <div class="login-icon">📝</div>
-            <h1>本地日记本</h1>
-            <p class="subtitle">安全增强版 · 数据本地存储</p>
-            <div class="login-error" id="loginError"></div>
-            <div id="loginFormContainer">
-                <form id="loginForm">
-                    <div class="form-group">
-                        <label>用户名</label>
-                        <input type="text" id="loginUsername" placeholder="输入用户名" autocomplete="username" required>
-                    </div>
-                    <div class="form-group">
-                        <label>密码</label>
-                        <input type="password" id="loginPassword" placeholder="输入密码" autocomplete="current-password" required>
-                    </div>
-                    <button type="submit" class="login-btn" id="loginBtn">登 录</button>
-                </form>
-                <div class="login-footer">
-                    <p>还没有账号？<a href="#" id="showRegisterLink">立即注册</a></p>
-                    <p style="margin-top: 0.35rem;"><a href="#" id="forgotPasswordLink">忘记密码？</a></p>
-                </div>
-            </div>
-            <div id="registerFormContainer" style="display: none;">
-                <form id="registerForm">
-                    <div class="form-group">
-                        <label>用户名</label>
-                        <input type="text" id="registerUsername" placeholder="2-32个字符，字母/数字/下划线" autocomplete="username" required>
-                    </div>
-                    <div class="form-group">
-                        <label>密码</label>
-                        <input type="password" id="registerPassword" placeholder="至少6个字符" autocomplete="new-password" required>
-                    </div>
-                    <div class="form-group">
-                        <label>确认密码</label>
-                        <input type="password" id="registerConfirmPassword" placeholder="再次输入密码" autocomplete="new-password" required>
-                    </div>
-                    <button type="submit" class="login-btn" id="registerBtn">注 册</button>
-                </form>
-                <div class="login-footer">
-                    <p>已有账号？<a href="#" id="showLoginLink">返回登录</a></p>
-                </div>
-            </div>
-            <div class="login-footer" style="margin-top: 1rem;">
-                <p>🔒 数据本地存储，不会上传到云端</p>
-                <p id="encryptionStatus" style="margin-top: 0.5rem;"></p>
-            </div>
+<!-- 登录页 -->
+<div id="loginPage" class="show d-flex" style="min-height:100vh;justify-content:center;align-items:center;background:radial-gradient(ellipse at top,#f5f0e8 0%,var(--bg) 60%);padding:2rem;">
+  <div class="card border-0 shadow-lg" style="max-width:420px;width:100%;border-radius:24px;">
+    <div class="card-body p-4 text-center">
+      <div class="mb-1" style="font-size:2.4rem;">📝</div>
+      <h1 class="mb-0" style="color:var(--primary-dark);font-weight:700;font-size:1.6rem;">本地日记本</h1>
+      <p class="text-muted mb-4" style="font-size:0.82rem;">安全增强版 · 数据本地存储</p>
+      <div class="alert alert-danger py-2 small" id="loginError" role="alert" style="display:none;"></div>
+      <div id="loginFormContainer">
+        <form id="loginForm">
+          <div class="mb-3 text-start">
+            <label class="form-label small fw-medium text-secondary">用户名</label>
+            <input type="text" class="form-control" id="loginUsername" placeholder="输入用户名" autocomplete="username" required>
+          </div>
+          <div class="mb-3 text-start">
+            <label class="form-label small fw-medium text-secondary">密码</label>
+            <input type="password" class="form-control" id="loginPassword" placeholder="输入密码" autocomplete="current-password" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold" id="loginBtn">登 录</button>
+        </form>
+        <div class="mt-3 small text-muted">
+          <p class="mb-1">还没有账号？<a href="#" id="showRegisterLink" class="fw-semibold" style="color:var(--primary);text-decoration:none;">立即注册</a></p>
+          <p class="mb-0"><a href="#" class="small fw-semibold" id="forgotPasswordLink" style="color:var(--primary);text-decoration:none;">忘记密码？</a></p>
         </div>
-    </div>
-
-    <!-- 锁屏 -->
-    <div id="lockScreen">
-        <div class="lock-box">
-            <div class="lock-icon">🔒</div>
-            <h2>会话已锁定</h2>
-            <p>长时间未操作，请重新登录</p>
-            <input type="password" id="lockPassword" placeholder="输入密码解锁">
-            <button class="login-btn" id="unlockBtn">解锁</button>
-            <p style="margin-top: 1rem;">
-                <a href="#" id="logoutFromLock" style="color: var(--primary);">退出登录</a>
-            </p>
+      </div>
+      <div id="registerFormContainer" style="display:none;">
+        <form id="registerForm">
+          <div class="mb-3 text-start">
+            <label class="form-label small fw-medium text-secondary">用户名</label>
+            <input type="text" class="form-control" id="registerUsername" placeholder="2-32个字符，字母/数字/下划线" autocomplete="username" required>
+          </div>
+          <div class="mb-3 text-start">
+            <label class="form-label small fw-medium text-secondary">密码</label>
+            <input type="password" class="form-control" id="registerPassword" placeholder="至少6个字符" autocomplete="new-password" required>
+          </div>
+          <div class="mb-3 text-start">
+            <label class="form-label small fw-medium text-secondary">确认密码</label>
+            <input type="password" class="form-control" id="registerConfirmPassword" placeholder="再次输入密码" autocomplete="new-password" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold" id="registerBtn">注 册</button>
+        </form>
+        <div class="mt-3 small text-muted">
+          <p>已有账号？<a href="#" id="showLoginLink" class="fw-semibold" style="color:var(--primary);text-decoration:none;">返回登录</a></p>
         </div>
+      </div>
+      <div class="mt-3 pt-2 small text-muted border-top" style="border-color:var(--border-light)!important;">
+        <p class="mb-1">🔒 数据本地存储，不会上传到云端</p>
+        <p class="mb-0" id="encryptionStatus"></p>
+      </div>
     </div>
+  </div>
+</div>
 
-    <!-- 主应用 -->
-    <div id="appContainer" style="display: none;">
-        <!-- 密码修改提示 -->
-        <div class="password-warning" id="passwordWarning">
-            <span class="close-btn" id="dismissPasswordWarningBtn">&times;</span>
-            <div class="warning-content">
-                <p>⚠️ <strong>首次登录提示</strong>：你还在使用默认密码，请尽快修改！</p>
-            </div>
-            <button class="btn btn-primary" id="goToSettingsBtn" style="flex-shrink:0;">立即修改密码</button>
+<!-- 锁屏 -->
+<div id="lockScreen">
+  <div class="card border-0 shadow-lg text-center p-4" style="max-width:380px;width:90%;border-radius:22px;animation:scaleIn 0.3s ease;">
+    <div style="font-size:2rem;margin-bottom:0.75rem;">🔒</div>
+    <h2 class="fs-5 fw-bold mb-1">会话已锁定</h2>
+    <p class="text-muted small mb-3">长时间未操作，请重新登录</p>
+    <input type="password" class="form-control mb-2" id="lockPassword" placeholder="输入密码解锁">
+    <button class="btn btn-primary w-100 py-2 fw-semibold" id="unlockBtn">解锁</button>
+    <p class="mt-3 mb-0"><a href="#" id="logoutFromLock" class="fw-semibold" style="color:var(--primary);text-decoration:none;">退出登录</a></p>
+  </div>
+</div>
+
+<!-- 主应用 -->
+<div id="appContainer" style="display:none;">
+  <!-- 密码提示 -->
+  <div class="password-warning" id="passwordWarning">
+    <span class="close-btn" id="dismissPasswordWarningBtn" style="cursor:pointer;font-size:1.1rem;color:var(--text-muted);line-height:1;padding:0.25rem;">&times;</span>
+    <div class="warning-content">
+      <p class="mb-0 small" style="color:#7a6530;">⚠️ <strong>首次登录提示</strong>：你还在使用默认密码，请尽快修改！</p>
+    </div>
+    <button class="btn btn-primary btn-sm flex-shrink-0" id="goToSettingsBtn">立即修改密码</button>
+  </div>
+
+  <!-- 导航栏 -->
+  <nav class="d-flex align-items-center justify-content-between sticky-top px-3 px-md-4 border-bottom bg-body" style="height:58px;z-index:100;">
+    <div class="d-flex align-items-center gap-2 flex-shrink-0">
+      <span class="fw-bold" style="font-size:1.1rem;color:var(--primary-dark);white-space:nowrap;">📝 本地日记本</span>
+      <span class="badge rounded-pill" id="encryptionBadge" style="background:var(--success-bg,#edf5ed);color:var(--success);font-size:0.68rem;">🔐 已加密</span>
+    </div>
+    <div class="d-flex gap-1 overflow-auto" id="desktopNav" style="margin:0 0.75rem;scrollbar-width:none;">
+      <button type="button" class="app-nav-link active" data-view="list">📋 列表</button>
+      <button type="button" class="app-nav-link" data-view="calendar">📅 日历</button>
+      <button type="button" class="app-nav-link" data-view="editor">✏️ 写日记</button>
+      <button type="button" class="app-nav-link" data-view="stats">📊 统计</button>
+      <button type="button" class="app-nav-link" data-view="audit">📜 日志</button>
+      <button type="button" class="app-nav-link" data-view="users" id="usersNavLink" style="display:none;">👥 用户</button>
+      <button type="button" class="app-nav-link" data-view="settings">⚙️ 设置</button>
+    </div>
+    <div class="d-flex align-items-center gap-2 flex-shrink-0">
+      <div class="d-flex align-items-center" style="background:var(--bg-soft);border-radius:20px;padding:0.3rem 0.65rem;border:1px solid transparent;transition:all var(--transition);" id="searchBar">
+        <input type="text" class="border-0 bg-transparent" id="searchInput" placeholder="搜索日记..." style="outline:none;width:180px;font-size:0.82rem;color:var(--text);">
+      </div>
+      <span class="badge rounded-pill px-3 py-1 small fw-normal" style="background:var(--bg-soft);color:var(--text-secondary);white-space:nowrap;" id="currentUser">admin</span>
+      <button class="btn border rounded-circle d-flex align-items-center justify-content-center p-0" id="lockBtn" style="width:38px;height:38px;font-size:0.85rem;border-color:var(--border);" title="锁屏">🔒</button>
+    </div>
+  </nav>
+
+  <!-- 主内容 -->
+  <main class="main-content" style="max-width:1080px;margin:0 auto;padding:1.75rem;min-height:calc(100vh - 58px);">
+    <!-- 列表 -->
+    <div id="listView" class="view active">
+      <div id="searchStatus" class="align-items-center justify-content-between mb-3 px-3 py-2 rounded-2 small" style="display:none;background:var(--primary-bg,#f5f0ea);color:var(--primary-dark);">
+        <span id="searchStatusText"></span>
+        <button id="clearSearchBtn" class="btn btn-sm border-0 fw-semibold" style="color:var(--primary-dark);">&times; 清除搜索</button>
+      </div>
+      <div class="diary-list" id="diaryList"><div class="text-center text-muted py-5 small">加载中...</div></div>
+    </div>
+    <!-- 日历 -->
+    <div id="calendarView" class="view">
+      <div class="calendar card border-0 shadow-sm p-3 p-md-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h2 class="fs-5 fw-semibold mb-0" id="calendarTitle">2026年 5月</h2>
+          <div class="d-flex gap-1">
+            <button class="btn btn-outline-secondary border rounded-circle d-flex align-items-center justify-content-center p-0" id="prevMonth" style="width:34px;height:34px;font-size:0.85rem;">◀</button>
+            <button class="btn btn-outline-secondary border rounded-circle d-flex align-items-center justify-content-center p-0" id="nextMonth" style="width:34px;height:34px;font-size:0.85rem;">▶</button>
+          </div>
         </div>
-
-        <!-- 导航栏 -->
-        <nav class="navbar">
-            <div class="nav-left">
-                <div class="logo">📝 本地日记本</div>
-                <span class="encryption-badge" id="encryptionBadge">🔐 已加密</span>
-            </div>
-            <div class="nav-links">
-                <button class="nav-link active" data-view="list">📋 列表</button>
-                <button class="nav-link" data-view="calendar">📅 日历</button>
-                <button class="nav-link" data-view="editor">✏️ 写日记</button>
-                <button class="nav-link" data-view="stats">📊 统计</button>
-                <button class="nav-link" data-view="audit">📜 日志</button>
-                <button class="nav-link" data-view="users" id="usersNavLink" style="display: none;">👥 用户</button>
-                <button class="nav-link" data-view="settings">⚙️ 设置</button>
-            </div>
-            <div class="nav-right">
-                <div class="search-bar">
-                    <input type="text" id="searchInput" placeholder="搜索日记...">
-                </div>
-                <div class="user-info">
-                    <span id="currentUser">admin</span>
-                </div>
-                <button class="lock-btn" id="lockBtn" title="锁屏">🔒</button>
-            </div>
-        </nav>
-
-        <!-- 主内容 -->
-        <main class="main">
-            <!-- 列表视图 -->
-            <div id="listView" class="view active">
-                <div id="searchStatus" style="display:none; margin-bottom:0.75rem; padding:0.5rem 1rem; background:var(--primary-bg); border-radius:var(--radius-sm); font-size:0.85rem; color:var(--primary-dark); align-items:center; justify-content:space-between;">
-                    <span id="searchStatusText"></span>
-                    <button id="clearSearchBtn" style="background:none; border:none; cursor:pointer; color:var(--primary-dark); font-weight:600; font-size:0.9rem;">&times; 清除搜索</button>
-                </div>
-                <div class="diary-list" id="diaryList">
-                    <div class="loading">加载中...</div>
-                </div>
-            </div>
-
-            <!-- 日历视图 -->
-            <div id="calendarView" class="view">
-                <div class="calendar">
-                    <div class="calendar-header">
-                        <h2 id="calendarTitle">2026年 5月</h2>
-                        <div class="calendar-nav">
-                            <button id="prevMonth">◀</button>
-                            <button id="nextMonth">▶</button>
-                        </div>
-                    </div>
-                    <div class="calendar-grid" id="calendarGrid"></div>
-                </div>
-            </div>
-
-            <!-- 编辑器 -->
-            <div id="editorView" class="view">
-                <div class="editor-container">
-                    <div class="editor-header">
-                        <input type="date" id="editorDate" class="date-input">
-                        <div class="editor-actions">
-                            <span class="autosave-indicator" id="autosaveIndicator"></span>
-                            <button class="btn btn-secondary" id="downloadBtn">⬇ 导出</button>
-                            <button class="btn btn-primary" id="saveBtn">💾 保存</button>
-                            <button class="btn btn-danger" id="deleteBtn">🗑️ 删除</button>
-                        </div>
-                    </div>
-                    <div class="editor-body">
-                        <textarea id="editorContent" class="editor-textarea" placeholder="今天发生了什么？"></textarea>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 统计 -->
-            <div id="statsView" class="view">
-                <div class="stats-grid" id="statsGrid">
-                    <div class="loading">加载统计中...</div>
-                </div>
-                <div class="tags-cloud" id="tagsCloud">
-                    <h3>🏷️ 标签云</h3>
-                    <div id="tagsContainer"></div>
-                </div>
-            </div>
-
-            <!-- 审计日志 -->
-            <div id="auditView" class="view">
-                <h3 style="margin-bottom: 1rem;">📜 操作审计日志</h3>
-                <div style="overflow-x: auto;">
-                    <table class="audit-table" id="auditTable">
-                        <thead>
-                            <tr>
-                                <th>时间</th>
-                                <th>用户</th>
-                                <th>操作</th>
-                                <th>详情</th>
-                                <th>IP</th>
-                            </tr>
-                        </thead>
-                        <tbody id="auditBody"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- 安全设置 -->
-            <div id="settingsView" class="view">
-                <div class="settings-panel">
-                    <div class="settings-section">
-                        <h3>🔐 密码管理</h3>
-                        <div class="setting-row">
-                            <div>
-                                <div class="setting-label">修改密码</div>
-                                <div class="setting-desc">定期更换密码以提高安全性</div>
-                            </div>
-                        </div>
-                        <div style="margin-top: 1rem;">
-                            <div class="form-group">
-                                <label>当前密码</label>
-                                <input type="password" id="oldPassword" style="max-width: 300px;">
-                            </div>
-                            <div class="form-group">
-                                <label>新密码</label>
-                                <input type="password" id="newPassword" style="max-width: 300px;">
-                            </div>
-                            <div class="form-group">
-                                <label>确认新密码</label>
-                                <input type="password" id="confirmPassword" style="max-width: 300px;">
-                            </div>
-                            <button class="btn btn-primary" id="changePasswordBtn">修改密码</button>
-                        </div>
-                    </div>
-
-                    <div class="settings-section">
-                        <h3>🛡️ 安全状态</h3>
-                        <div id="securityStatus"></div>
-                    </div>
-
-                    <div class="settings-section">
-                        <h3>💾 数据备份</h3>
-                        <div class="setting-row">
-                            <div>
-                                <div class="setting-label">下载加密备份</div>
-                                <div class="setting-desc">将所有日记打包为加密 ZIP 文件下载</div>
-                            </div>
-                            <button class="btn btn-primary" id="downloadBackupBtn">⬇ 下载加密备份</button>
-                        </div>
-                        <div class="setting-row">
-                            <div>
-                                <div class="setting-label">下载明文备份</div>
-                                <div class="setting-desc">下载已解明的 ZIP（⚠️ 请妥善保管！）</div>
-                            </div>
-                            <button class="btn btn-warning" id="downloadDecryptedBackupBtn">⬇ 下载明文备份</button>
-                        </div>
-                        <div class="setting-row">
-                            <div>
-                                <div class="setting-label">从备份恢复</div>
-                                <div class="setting-desc">上传之前下载的 ZIP 备份文件</div>
-                            </div>
-                            <button class="btn btn-secondary" id="restoreBtn">📂 选择文件</button>
-                        </div>
-                        <input type="file" id="restoreFileInput" accept=".zip" style="display:none">
-                        <div id="restoreProgress" style="display:none; margin-top: 0.5rem; padding: 0.8rem; background: var(--bg); border-radius: 8px;"></div>
-                    </div>
-
-                    <div class="settings-section">
-                        <h3>🔑 会话管理</h3>
-                        <div class="setting-row">
-                            <div>
-                                <div class="setting-label">自动锁定</div>
-                                <div class="setting-desc" id="sessionTimeoutDesc">无操作 3600 秒后自动锁定</div>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <div>
-                                <div class="setting-label">当前会话</div>
-                                <div class="setting-value" id="sessionInfo">-</div>
-                            </div>
-                            <button class="btn btn-danger" id="logoutBtn">退出登录</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 用户管理（仅管理员可见） -->
-            <div id="usersView" class="view">
-                <h3 style="margin-bottom: 1rem;">👥 用户管理</h3>
-                <div style="margin-bottom: 1.5rem;">
-                    <button class="btn btn-primary" id="addUserBtn">➕ 新建用户</button>
-                </div>
-                <div style="overflow-x: auto;">
-                    <table class="audit-table" id="usersTable">
-                        <thead>
-                            <tr>
-                                <th>用户名</th>
-                                <th>角色</th>
-                                <th>创建时间</th>
-                                <th>密码状态</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="usersTableBody"></tbody>
-                    </table>
-                </div>
-            </div>
-        </main>
-
-        <!-- 移动端底部导航 -->
-        <nav class="mobile-bottom-nav" id="mobileNav">
-            <div class="mobile-nav-item active" data-view="list">
-                <span class="icon">📋</span>
-                <span>列表</span>
-            </div>
-            <div class="mobile-nav-item" data-view="calendar">
-                <span class="icon">📅</span>
-                <span>日历</span>
-            </div>
-            <div class="mobile-nav-item" data-view="editor">
-                <span class="icon">✏️</span>
-                <span>写日记</span>
-            </div>
-            <div class="mobile-nav-item" data-view="stats">
-                <span class="icon">📊</span>
-                <span>统计</span>
-            </div>
-            <div class="mobile-nav-item" data-view="users" id="mobileUsersNav" style="display: none;">
-                <span class="icon">👥</span>
-                <span>用户</span>
-            </div>
-            <div class="mobile-nav-item" data-view="settings">
-                <span class="icon">⚙️</span>
-                <span>设置</span>
-            </div>
-        </nav>
+        <div class="calendar-grid" id="calendarGrid"></div>
+      </div>
     </div>
-
-    <!-- Toast -->
-    <div class="toast" id="toast"></div>
-
-    <!-- 用户管理模态框 -->
-    <div class="modal-overlay" id="userModal">
-        <div class="modal">
-            <h3 id="userModalTitle">新建用户</h3>
-            <div class="form-group">
-                <label>用户名</label>
-                <input type="text" id="modalUsername" placeholder="2-32个字符">
-            </div>
-            <div class="form-group">
-                <label>密码</label>
-                <input type="password" id="modalPassword" placeholder="至少6个字符">
-            </div>
-            <div class="form-group">
-                <label>角色</label>
-                <select id="modalRole" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px;">
-                    <option value="user">普通用户</option>
-                    <option value="admin">管理员</option>
-                </select>
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="cancelUserModal">取消</button>
-                <button class="btn btn-primary" id="saveUserBtn">保存</button>
-            </div>
+    <!-- 编辑器 -->
+    <div id="editorView" class="view">
+      <div class="card border-0 shadow">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 px-3 py-2 border-bottom" style="border-color:var(--border-light)!important;">
+          <input type="date" id="editorDate" class="form-control form-control-sm" style="width:auto;max-width:160px;">
+          <div class="d-flex gap-1 align-items-center flex-wrap">
+            <span class="autosave-indicator" id="autosaveIndicator"></span>
+            <button class="btn btn-outline-secondary btn-sm" id="downloadBtn">⬇ 导出</button>
+            <button class="btn btn-primary btn-sm" id="saveBtn">💾 保存</button>
+            <button class="btn btn-outline-danger btn-sm" id="deleteBtn">🗑️ 删除</button>
+          </div>
         </div>
-    </div>
-
-    <!-- 重置密码模态框 -->
-    <div class="modal-overlay" id="resetPasswordModal">
-        <div class="modal">
-            <h3>重置密码</h3>
-            <p style="margin-bottom: 1rem; color: var(--text-light);">用户：<span id="resetPasswordUser"></span></p>
-            <div class="form-group">
-                <label>新密码</label>
-                <input type="password" id="resetPasswordInput" placeholder="至少6个字符">
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="cancelResetPassword">取消</button>
-                <button class="btn btn-primary" id="confirmResetPassword">确认重置</button>
-            </div>
+        <div class="editor-body">
+          <textarea id="editorContent" class="editor-textarea" placeholder="今天发生了什么？"></textarea>
         </div>
+      </div>
     </div>
-
-    <!-- 忘记密码模态框 -->
-    <div class="modal-overlay" id="forgotPasswordModal">
-        <div class="modal">
-            <h3>🔑 忘记密码？</h3>
-            <p style="margin-bottom: 0.75rem; font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6;">
-                本应用数据存储在本地，无法通过邮件重置密码。
-            </p>
-            <p style="margin-bottom: 0.75rem; font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6;">
-                请联系管理员（通过 SSH 登录设备）执行以下命令重置 admin 密码：
-            </p>
-            <div style="background: var(--bg-soft); border-radius: var(--radius-xs); padding: 0.75rem 1rem; margin-bottom: 1rem; font-family: monospace; font-size: 0.8rem; color: var(--text); line-height: 1.6;">
-                cd ~/diary_web<br>
-                python3 -c "<br>
-                import json, hashlib, base64, os<br>
-                salt = os.urandom(16)<br>
-                h = hashlib.pbkdf2_hmac('sha256', b'新密码', salt, 600000)<br>
-                d = json.load(open('config/users.json'))<br>
-                d['admin']['password_hash'] = base64.b64encode(salt+h).decode()<br>
-                d['admin']['password_changed'] = False<br>
-                json.dump(d, open('config/users.json','w'), indent=2, ensure_ascii=False)<br>
-                "
+    <!-- 统计 -->
+    <div id="statsView" class="view">
+      <div class="stats-grid" id="statsGrid"><div class="text-center text-muted py-5 small">加载统计中...</div></div>
+      <div class="card border-0 shadow-sm p-3">
+        <h3 class="fs-6 fw-semibold mb-3">🏷️ 标签云</h3>
+        <div id="tagsContainer"></div>
+      </div>
+    </div>
+    <!-- 审计日志 -->
+    <div id="auditView" class="view">
+      <h3 class="fs-6 fw-semibold mb-3">📜 操作审计日志</h3>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 border rounded-3 overflow-hidden" style="border-color:var(--border-light)!important;">
+          <thead class="small text-secondary" style="background:var(--bg-soft);">
+            <tr><th class="fw-semibold">时间</th><th class="fw-semibold">用户</th><th class="fw-semibold">操作</th><th class="fw-semibold">详情</th><th class="fw-semibold">IP</th></tr>
+          </thead>
+          <tbody id="auditBody" class="small"></tbody>
+        </table>
+      </div>
+    </div>
+    <!-- 设置 -->
+    <div id="settingsView" class="view">
+      <div class="card border-0 shadow-sm" style="max-width:640px;">
+        <div class="card-body p-4">
+          <div class="border-bottom pb-3 mb-3" style="border-color:var(--border-light)!important;">
+            <h3 class="fs-6 fw-semibold mb-3">🔐 密码管理</h3>
+            <div class="mb-3">
+              <label class="form-label small fw-medium text-secondary">当前密码</label>
+              <input type="password" class="form-control" id="oldPassword" style="max-width:300px;">
             </div>
-            <p style="font-size: 0.8rem; color: var(--text-muted);">将上面代码中的<strong>新密码</strong>替换为你想要设置的新密码。</p>
-            <div class="modal-actions">
-                <button class="btn btn-primary" id="closeForgotPassword">知道了</button>
+            <div class="mb-3">
+              <label class="form-label small fw-medium text-secondary">新密码</label>
+              <input type="password" class="form-control" id="newPassword" style="max-width:300px;">
             </div>
+            <div class="mb-3">
+              <label class="form-label small fw-medium text-secondary">确认新密码</label>
+              <input type="password" class="form-control" id="confirmPassword" style="max-width:300px;">
+            </div>
+            <button class="btn btn-primary" id="changePasswordBtn">修改密码</button>
+          </div>
+          <div class="border-bottom pb-3 mb-3" style="border-color:var(--border-light)!important;">
+            <h3 class="fs-6 fw-semibold mb-3">🛡️ 安全状态</h3>
+            <div id="securityStatus"></div>
+          </div>
+          <div class="border-bottom pb-3 mb-3" style="border-color:var(--border-light)!important;">
+            <h3 class="fs-6 fw-semibold mb-3">💾 数据备份</h3>
+            <div class="d-flex justify-content-between align-items-center py-2 gap-3 flex-wrap">
+              <div><div class="fw-medium small">下载加密备份</div><div class="small text-muted">将所有日记打包为加密 ZIP 文件下载</div></div>
+              <button class="btn btn-primary btn-sm" id="downloadBackupBtn">⬇ 下载加密备份</button>
+            </div>
+            <div class="d-flex justify-content-between align-items-center py-2 gap-3 flex-wrap">
+              <div><div class="fw-medium small">下载明文备份</div><div class="small text-muted">下载已解明的 ZIP（⚠️ 请妥善保管！）</div></div>
+              <button class="btn btn-warning btn-sm text-white" id="downloadDecryptedBackupBtn">⬇ 下载明文备份</button>
+            </div>
+            <div class="d-flex justify-content-between align-items-center py-2 gap-3 flex-wrap">
+              <div><div class="fw-medium small">从备份恢复</div><div class="small text-muted">上传之前下载的 ZIP 备份文件</div></div>
+              <button class="btn btn-outline-secondary btn-sm" id="restoreBtn">📂 选择文件</button>
+            </div>
+            <input type="file" id="restoreFileInput" accept=".zip" class="d-none">
+            <div id="restoreProgress" class="mt-2 p-3 rounded-2 small" style="display:none;background:var(--bg);"></div>
+          </div>
+          <div>
+            <h3 class="fs-6 fw-semibold mb-3">🔑 会话管理</h3>
+            <div class="d-flex justify-content-between align-items-center py-2 gap-3 flex-wrap">
+              <div><div class="fw-medium small">自动锁定</div><div class="small text-muted" id="sessionTimeoutDesc">无操作 3600 秒后自动锁定</div></div>
+            </div>
+            <div class="d-flex justify-content-between align-items-center py-2 gap-3 flex-wrap">
+              <div><div class="fw-medium small">当前会话</div><div class="small" style="color:var(--primary);font-weight:500;" id="sessionInfo">-</div></div>
+              <button class="btn btn-outline-danger btn-sm" id="logoutBtn">退出登录</button>
+            </div>
+          </div>
         </div>
+      </div>
     </div>
+    <!-- 用户管理 -->
+    <div id="usersView" class="view">
+      <h3 class="fs-6 fw-semibold mb-3">👥 用户管理</h3>
+      <div class="mb-3"><button class="btn btn-primary btn-sm" id="addUserBtn">➕ 新建用户</button></div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 border rounded-3 overflow-hidden" style="border-color:var(--border-light)!important;">
+          <thead class="small text-secondary" style="background:var(--bg-soft);">
+            <tr><th class="fw-semibold">用户名</th><th class="fw-semibold">角色</th><th class="fw-semibold">创建时间</th><th class="fw-semibold">密码状态</th><th class="fw-semibold">操作</th></tr>
+          </thead>
+          <tbody id="usersTableBody" class="small"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
 
-    <script src="/static/app.js?v=3.1"></script>
+  <!-- 移动底部导航 -->
+  <nav class="mobile-bottom-nav" id="mobileNav">
+    <div class="mobile-nav-item active" data-view="list"><span class="icon">📋</span><span>列表</span></div>
+    <div class="mobile-nav-item" data-view="calendar"><span class="icon">📅</span><span>日历</span></div>
+    <div class="mobile-nav-item" data-view="editor"><span class="icon">✏️</span><span>写日记</span></div>
+    <div class="mobile-nav-item" data-view="stats"><span class="icon">📊</span><span>统计</span></div>
+    <div class="mobile-nav-item" data-view="users" id="mobileUsersNav" style="display:none;"><span class="icon">👥</span><span>用户</span></div>
+    <div class="mobile-nav-item" data-view="settings"><span class="icon">⚙️</span><span>设置</span></div>
+  </nav>
+</div>
+
+<!-- Toast -->
+<div class="toast-custom" id="toast"></div>
+
+<!-- Bootstrap Modals -->
+<div class="modal fade" id="userModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg" style="border-radius:20px;">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-semibold" id="userModalTitle">新建用户</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small fw-medium">用户名</label>
+          <input type="text" class="form-control" id="modalUsername" placeholder="2-32个字符">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-medium">密码</label>
+          <input type="password" class="form-control" id="modalPassword" placeholder="至少6个字符">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-medium">角色</label>
+          <select class="form-select" id="modalRole">
+            <option value="user">普通用户</option>
+            <option value="admin">管理员</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal" id="cancelUserModal">取消</button>
+        <button type="button" class="btn btn-primary btn-sm" id="saveUserBtn">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg" style="border-radius:20px;">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-semibold">重置密码</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-3">用户：<span id="resetPasswordUser" class="fw-semibold"></span></p>
+        <div class="mb-3">
+          <label class="form-label small fw-medium">新密码</label>
+          <input type="password" class="form-control" id="resetPasswordInput" placeholder="至少6个字符">
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal" id="cancelResetPassword">取消</button>
+        <button type="button" class="btn btn-primary btn-sm" id="confirmResetPassword">确认重置</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="forgotPasswordModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg" style="border-radius:20px;">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-semibold">🔑 忘记密码？</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-secondary lh-base">本应用数据存储在本地，无法通过邮件重置密码。</p>
+        <p class="small text-secondary lh-base">请联系管理员（通过 SSH 登录设备）执行以下命令重置 admin 密码：</p>
+        <div class="p-3 rounded-2 mb-3 small font-monospace lh-base" style="background:var(--bg-soft);">
+          cd ~/diary_web<br>
+          python3 -c "<br>
+          &nbsp;&nbsp;import json, hashlib, base64, os<br>
+          &nbsp;&nbsp;salt = os.urandom(16)<br>
+          &nbsp;&nbsp;h = hashlib.pbkdf2_hmac('sha256', b'新密码', salt, 600000)<br>
+          &nbsp;&nbsp;d = json.load(open('config/users.json'))<br>
+          &nbsp;&nbsp;d['admin']['password_hash'] = base64.b64encode(salt+h).decode()<br>
+          &nbsp;&nbsp;d['admin']['password_changed'] = False<br>
+          &nbsp;&nbsp;json.dump(d, open('config/users.json','w'), indent=2, ensure_ascii=False)<br>
+          "
+        </div>
+        <p class="small text-muted">将上面代码中的<strong>新密码</strong>替换为你想要设置的新密码。</p>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-primary btn-sm" data-bs-dismiss="modal" id="closeForgotPassword">知道了</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/bootstrap.bundle.min.js"></script>
+<script src="/static/app.js?v=3.3"></script>
 </body>
 </html>

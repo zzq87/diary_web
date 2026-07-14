@@ -12,6 +12,13 @@
         let diaryDates = new Set();
         let _searchQuery = '';
 
+        // 全局错误捕获，将 JS 错误显示为 Toast
+        window.onerror = function (msg, url, line, col, err) {
+            try {
+                showToast('JS错误: ' + (err ? err.message : msg) + ' (行' + line + ')', 'error');
+            } catch (e) { /* ignore */ }
+        };
+
         // 优先从 cookie 获取 token（httpOnly，更安全）
         function getCookie(name) {
             const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
@@ -92,10 +99,7 @@
             // 忘记密码
             document.getElementById('forgotPasswordLink').addEventListener('click', (e) => {
                 e.preventDefault();
-                document.getElementById('forgotPasswordModal').classList.add('show');
-            });
-            document.getElementById('closeForgotPassword').addEventListener('click', () => {
-                document.getElementById('forgotPasswordModal').classList.remove('show');
+                new bootstrap.Modal(document.getElementById('forgotPasswordModal')).show();
             });
 
             // 密码警告提示
@@ -134,9 +138,17 @@
                 }
             });
 
-            // 导航
-            document.querySelectorAll('.nav-link, .mobile-nav-item').forEach(el => {
-                el.addEventListener('click', () => showView(el.dataset.view));
+            // 导航 — 直接绑定
+            document.querySelectorAll('.app-nav-link, .mobile-nav-item').forEach(el => {
+                el.addEventListener('click', (e) => { e.preventDefault(); showView(el.dataset.view); });
+            });
+            // 导航 — 事件委托（兜底）
+            document.getElementById('appContainer').addEventListener('click', (e) => {
+                const btn = e.target.closest('.app-nav-link, .mobile-nav-item');
+                if (btn) {
+                    e.preventDefault();
+                    showView(btn.dataset.view);
+                }
             });
 
             // 月份切换
@@ -397,35 +409,41 @@
 
         // ─── 视图切换 ──────────────────────────────────
         function showView(viewName) {
-            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-            document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-            document.querySelectorAll('.mobile-nav-item').forEach(l => l.classList.remove('active'));
-            
-            document.getElementById(viewName + 'View').classList.add('active');
-            
-            // 高亮桌面导航
-            document.querySelectorAll('.nav-link').forEach(l => {
-                if (l.dataset.view === viewName) l.classList.add('active');
-            });
-            
-            // 高亮移动导航
-            document.querySelectorAll('.mobile-nav-item').forEach(l => {
-                if (l.dataset.view === viewName) l.classList.add('active');
-            });
+            try {
+                document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+                document.querySelectorAll('.app-nav-link').forEach(l => l.classList.remove('active'));
+                document.querySelectorAll('.mobile-nav-item').forEach(l => l.classList.remove('active'));
 
-            if (viewName === 'list') {
-                if (!_searchQuery) {
-                    document.getElementById('searchStatus').style.display = 'none';
+                const target = document.getElementById(viewName + 'View');
+                if (!target) { showToast('视图 ' + viewName + ' 不存在', 'error'); return; }
+                target.classList.add('active');
+
+                // 高亮桌面导航
+                document.querySelectorAll('.app-nav-link').forEach(l => {
+                    if (l.dataset.view === viewName) l.classList.add('active');
+                });
+
+                // 高亮移动导航
+                document.querySelectorAll('.mobile-nav-item').forEach(l => {
+                    if (l.dataset.view === viewName) l.classList.add('active');
+                });
+
+                if (viewName === 'list') {
+                    if (!_searchQuery) {
+                        document.getElementById('searchStatus').style.display = 'none';
+                    }
+                    loadDiaryList();
                 }
-                loadDiaryList();
-            }
-            if (viewName === 'calendar') loadCalendar();
-            if (viewName === 'stats') loadStats();
-            if (viewName === 'audit') loadAudit();
-            if (viewName === 'users') loadUsers();
-            if (viewName === 'settings') loadSettings();
-            if (viewName === 'editor') {
-                document.getElementById('editorDate').value = new Date().toISOString().split('T')[0];
+                if (viewName === 'calendar') loadCalendar();
+                if (viewName === 'stats') loadStats();
+                if (viewName === 'audit') loadAudit();
+                if (viewName === 'users') loadUsers();
+                if (viewName === 'settings') loadSettings();
+                if (viewName === 'editor') {
+                    document.getElementById('editorDate').value = new Date().toISOString().split('T')[0];
+                }
+            } catch (err) {
+                showToast('视图切换错误: ' + err.message, 'error');
             }
         }
 
@@ -505,6 +523,7 @@
                 indicator.className = 'autosave-indicator saved';
                 setTimeout(() => { indicator.textContent = ''; }, 2000);
                 showToast('✅ 日记已保存');
+                setTimeout(() => showView('list'), 600);
             } else {
                 indicator.textContent = '保存失败';
                 indicator.className = 'autosave-indicator';
@@ -1019,11 +1038,12 @@
                 roleSelect.value = 'user';
             }
 
-            modal.classList.add('show');
+            bootstrap.Modal.getOrCreateInstance(modal).show();
         }
 
         function closeUserModal() {
-            document.getElementById('userModal').classList.remove('show');
+            const m = bootstrap.Modal.getInstance(document.getElementById('userModal'));
+            if (m) m.hide();
             editingUser = null;
         }
 
@@ -1085,11 +1105,12 @@
             resettingUser = username;
             document.getElementById('resetPasswordUser').textContent = username;
             document.getElementById('resetPasswordInput').value = '';
-            document.getElementById('resetPasswordModal').classList.add('show');
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('resetPasswordModal')).show();
         }
 
         function closeResetPasswordModal() {
-            document.getElementById('resetPasswordModal').classList.remove('show');
+            const m = bootstrap.Modal.getInstance(document.getElementById('resetPasswordModal'));
+            if (m) m.hide();
             resettingUser = null;
         }
 
@@ -1117,16 +1138,9 @@
             bindEvents();
             setupAutoSave();
 
-            // 点击模态框外部关闭
-            document.getElementById('userModal').addEventListener('click', (e) => {
-                if (e.target.id === 'userModal') closeUserModal();
-            });
-            document.getElementById('resetPasswordModal').addEventListener('click', (e) => {
-                if (e.target.id === 'resetPasswordModal') closeResetPasswordModal();
-            });
-            document.getElementById('forgotPasswordModal').addEventListener('click', (e) => {
-                if (e.target.id === 'forgotPasswordModal') document.getElementById('forgotPasswordModal').classList.remove('show');
-            });
+            // 模态框隐藏后重置状态
+            document.getElementById('userModal').addEventListener('hidden.bs.modal', () => { editingUser = null; });
+            document.getElementById('resetPasswordModal').addEventListener('hidden.bs.modal', () => { resettingUser = null; });
 
             await checkAuth();
 

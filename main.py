@@ -36,7 +36,17 @@ def main():
     print(f"   首次登录后请立即修改密码!")
     print(f"   健康检查: http://127.0.0.1:{PORT}/api/health\n")
 
-    uvicorn.run(create_app(), host="0.0.0.0", port=PORT)
+    # Pi 3B+ 优化：单进程、低并发、短 keepalive、禁用 access log
+    uvicorn.run(
+        create_app(),
+        host="0.0.0.0",
+        port=PORT,
+        workers=1,
+        limit_concurrency=20,
+        timeout_keep_alive=5,
+        access_log=False,
+        log_level="warning",
+    )
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, Depends
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, StreamingResponse
+from starlette.middleware.gzip import GZipMiddleware
 
 from .config import (
     DIARY_DIR,
@@ -115,13 +116,16 @@ def create_app() -> FastAPI:
 
         flush_task = asyncio.create_task(_periodic_flush())
         session_cleanup_task = asyncio.create_task(_periodic_session_cleanup())
+        mem_monitor_task = asyncio.create_task(_periodic_memory_monitor())
         yield
 
         flush_task.cancel()
         session_cleanup_task.cancel()
+        mem_monitor_task.cancel()
         try:
             await flush_task
             await session_cleanup_task
+            await mem_monitor_task
         except asyncio.CancelledError:
             pass
         _flush_audit_log()
@@ -140,12 +144,27 @@ def create_app() -> FastAPI:
             await asyncio.sleep(300)
             cleanup_expired_sessions()
 
+    async def _periodic_memory_monitor():
+        while True:
+            await asyncio.sleep(900)
+            try:
+                import os as _os
+                if _os.name == "posix":
+                    with open("/proc/self/status") as _f:
+                        _lines = {l.split(":")[0].strip(): l.split(":")[1].strip() for l in _f if ":" in l}
+                    _vm_rss = _lines.get("VmRSS", "?")
+                    _vm_size = _lines.get("VmSize", "?")
+                    logger.debug(f"内存 — RSS: {_vm_rss}, Size: {_vm_size}")
+            except Exception:
+                pass
+
     app = FastAPI(
         title="本地日记本",
         description="安全增强版 Markdown 日记管理系统",
         lifespan=lifespan,
     )
 
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.middleware("http")(security_headers_middleware)
     register_exception_handlers(app)
     _register_routes(app)
@@ -187,6 +206,7 @@ def _register_routes(app: FastAPI) -> None:
 
         if not user or not verify_password(data.password, user["password_hash"]):
             audit_log("LOGIN_FAILED", data.username, "wrong password", client_ip)
+            await asyncio.sleep(1)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
 
         token = create_session(data.username, ip=client_ip)
@@ -526,7 +546,15 @@ def _register_routes(app: FastAPI) -> None:
         if not backup.filename or not backup.filename.endswith(".zip"):
             raise HTTPException(status_code=400, detail="请上传 ZIP 备份文件")
 
+        # 限制上传大小（50 MB），保护 Pi 内存
+        import os as _os
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > 50 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="备份文件过大，最大 50 MB")
+
         zip_bytes = await backup.read()
+        if len(zip_bytes) > 50 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="备份文件过大，最大 50 MB")
 
         try:
             zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
