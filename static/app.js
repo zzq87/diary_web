@@ -89,6 +89,15 @@
             });
             document.getElementById('registerForm').addEventListener('submit', handleRegister);
 
+            // 忘记密码
+            document.getElementById('forgotPasswordLink').addEventListener('click', (e) => {
+                e.preventDefault();
+                document.getElementById('forgotPasswordModal').classList.add('show');
+            });
+            document.getElementById('closeForgotPassword').addEventListener('click', () => {
+                document.getElementById('forgotPasswordModal').classList.remove('show');
+            });
+
             // 密码警告提示
             document.getElementById('dismissPasswordWarningBtn').addEventListener('click', dismissPasswordWarning);
             document.getElementById('goToSettingsBtn').addEventListener('click', () => {
@@ -185,18 +194,17 @@
                     currentUser = data.username;
                     currentUserRole = data.role || 'user';
                     sessionTimeout = data.session_timeout;
-                    // 不再存 localStorage，依赖 httpOnly cookie
                     showApp();
                     loadDiaryList();
                     if (!data.password_changed) {
                         document.getElementById('passwordWarning').classList.add('show');
                     }
                 } else {
-                    error.textContent = data.error;
+                    error.textContent = data.detail || data.error || '用户名或密码错误';
                     error.style.display = 'block';
                 }
             } catch (err) {
-                error.textContent = '网络连接失败';
+                error.textContent = '网络连接失败，请检查服务是否运行';
                 error.style.display = 'block';
             }
 
@@ -279,7 +287,7 @@
                     resetIdleTimer();
                     showToast('已解锁');
                 } else {
-                    showToast(data.error, 'error');
+                    showToast(data.detail || data.error || '密码错误', 'error');
                 }
             } catch (err) {
                 showToast('网络错误', 'error');
@@ -1115,6 +1123,9 @@
             });
             document.getElementById('resetPasswordModal').addEventListener('click', (e) => {
                 if (e.target.id === 'resetPasswordModal') closeResetPasswordModal();
+            });
+            document.getElementById('forgotPasswordModal').addEventListener('click', (e) => {
+                if (e.target.id === 'forgotPasswordModal') document.getElementById('forgotPasswordModal').classList.remove('show');
             });
 
             await checkAuth();

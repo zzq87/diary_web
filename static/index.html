@@ -775,6 +775,7 @@
                 </form>
                 <div class="login-footer">
                     <p>还没有账号？<a href="#" id="showRegisterLink">立即注册</a></p>
+                    <p style="margin-top: 0.35rem;"><a href="#" id="forgotPasswordLink">忘记密码？</a></p>
                 </div>
             </div>
             <div id="registerFormContainer" style="display: none;">
@@ -1106,6 +1107,35 @@
         </div>
     </div>
 
-    <script src="/static/app.js"></script>
+    <!-- 忘记密码模态框 -->
+    <div class="modal-overlay" id="forgotPasswordModal">
+        <div class="modal">
+            <h3>🔑 忘记密码？</h3>
+            <p style="margin-bottom: 0.75rem; font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6;">
+                本应用数据存储在本地，无法通过邮件重置密码。
+            </p>
+            <p style="margin-bottom: 0.75rem; font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6;">
+                请联系管理员（通过 SSH 登录设备）执行以下命令重置 admin 密码：
+            </p>
+            <div style="background: var(--bg-soft); border-radius: var(--radius-xs); padding: 0.75rem 1rem; margin-bottom: 1rem; font-family: monospace; font-size: 0.8rem; color: var(--text); line-height: 1.6;">
+                cd ~/diary_web<br>
+                python3 -c "<br>
+                import json, hashlib, base64, os<br>
+                salt = os.urandom(16)<br>
+                h = hashlib.pbkdf2_hmac('sha256', b'新密码', salt, 600000)<br>
+                d = json.load(open('config/users.json'))<br>
+                d['admin']['password_hash'] = base64.b64encode(salt+h).decode()<br>
+                d['admin']['password_changed'] = False<br>
+                json.dump(d, open('config/users.json','w'), indent=2, ensure_ascii=False)<br>
+                "
+            </div>
+            <p style="font-size: 0.8rem; color: var(--text-muted);">将上面代码中的<strong>新密码</strong>替换为你想要设置的新密码。</p>
+            <div class="modal-actions">
+                <button class="btn btn-primary" id="closeForgotPassword">知道了</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js?v=3.1"></script>
 </body>
 </html>

@@ -171,7 +171,7 @@ def _register_routes(app: FastAPI) -> None:
         if not full_path.exists() or not full_path.is_file():
             raise HTTPException(status_code=404)
         response = FileResponse(str(full_path))
-        response.headers["Cache-Control"] = "public, max-age=86400"
+        response.headers["Cache-Control"] = "public, max-age=3600"
         return response
 
     @app.post("/api/login", response_model=LoginResponse)
