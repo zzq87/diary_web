@@ -10,7 +10,9 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import bcrypt
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 
 import logging
 
@@ -22,6 +24,7 @@ from app.config import (
     RATE_LIMIT_WINDOW,
     RATE_LIMIT_MAX,
     PBKDF2_ITERATIONS,
+    BCRYPT_ROUNDS,
     USERS_FILE,
     AUDIT_FILE,
     RATE_LIMIT_FILE,
@@ -36,12 +39,22 @@ logger = logging.getLogger("diary.auth")
 
 
 def hash_password(password: str) -> str:
-    salt = os.urandom(16)
-    pwd_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ITERATIONS)
-    return base64.b64encode(salt + pwd_hash).decode()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode()
+
+
+def is_legacy_password(hashed: str) -> bool:
+    return not hashed.startswith("$2")
 
 
 def verify_password(password: str, hashed: str) -> bool:
+    # bcrypt (new)
+    if hashed.startswith("$2"):
+        try:
+            return bcrypt.checkpw(password.encode(), hashed.encode())
+        except Exception:
+            return False
+
+    # legacy PBKDF2 hash
     try:
         raw = base64.b64decode(hashed)
         salt, stored_hash = raw[:16], raw[16:]
@@ -192,27 +205,33 @@ def _derive_session_key() -> bytes:
 
 
 def _encrypt_session(session_data: dict, session_key: bytes) -> str:
-    """加密会话数据"""
-    aesgcm = AESGCM(session_key)
+    chacha = ChaCha20Poly1305(session_key)
     nonce = os.urandom(12)
     data = json.dumps(session_data, ensure_ascii=False).encode("utf-8")
-    ciphertext = aesgcm.encrypt(nonce, data, None)
+    ciphertext = chacha.encrypt(nonce, data, None)
     return base64.b64encode(nonce + ciphertext).decode()
 
 
 def _decrypt_session(encrypted: str, session_key: bytes) -> dict:
-    """解密会话数据"""
     try:
         raw = base64.b64decode(encrypted)
         if len(raw) < 28:
             raise ValueError("密文过短")
         nonce, ciphertext = raw[:12], raw[12:]
-        aesgcm = AESGCM(session_key)
-        data = aesgcm.decrypt(nonce, ciphertext, None)
-        return json.loads(data.decode("utf-8"))
     except Exception as e:
-        logger.warning(f"会话解密失败: {e}")
+        logger.warning(f"会话解析失败: {e}")
         return {}
+
+    for cls in (ChaCha20Poly1305, AESGCM):
+        try:
+            cipher = cls(session_key)
+            data = bytes(cipher.decrypt(nonce, ciphertext, None))
+            return json.loads(data.decode("utf-8"))
+        except Exception:
+            continue
+
+    logger.warning("会话解密失败: 所有算法均失败")
+    return {}
 
 
 # ─── 文件锁 ────────────────────────────────────────────

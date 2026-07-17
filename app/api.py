@@ -3,6 +3,7 @@
 import json
 import logging
 import asyncio
+import time
 import zipfile
 import io
 import tempfile
@@ -21,6 +22,7 @@ from .config import (
     SESSION_TIMEOUT,
     MAX_LOGIN_ATTEMPTS,
     ENCRYPTION_ENABLED,
+    BCRYPT_ROUNDS,
     CONFIG_DIR,
     BASE_DIR,
     AUDIT_FILE,
@@ -32,6 +34,7 @@ from .auth import (
     save_users,
     verify_password,
     hash_password,
+    is_legacy_password,
     create_session,
     validate_session,
     peek_session,
@@ -204,10 +207,23 @@ def _register_routes(app: FastAPI) -> None:
         users = load_users()
         user = users.get(data.username)
 
-        if not user or not verify_password(data.password, user["password_hash"]):
+        verify_ok = False
+        if user:
+            t0 = time.monotonic()
+            verify_ok = verify_password(data.password, user["password_hash"])
+            elapsed = time.monotonic() - t0
+            logger.debug("Password verify took %.3fs", elapsed)
+
+        if not user or not verify_ok:
             audit_log("LOGIN_FAILED", data.username, "wrong password", client_ip)
             await asyncio.sleep(1)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+        # Rehash legacy PBKDF2 password with bcrypt
+        if is_legacy_password(user["password_hash"]):
+            users[data.username]["password_hash"] = hash_password(data.password)
+            users[data.username]["password_changed"] = user.get("password_changed", False)
+            save_users(users)
 
         token = create_session(data.username, ip=client_ip)
         audit_log("LOGIN_SUCCESS", data.username, "", client_ip)
@@ -674,6 +690,7 @@ def _register_routes(app: FastAPI) -> None:
             "session_timeout": SESSION_TIMEOUT,
             "max_login_attempts": MAX_LOGIN_ATTEMPTS,
             "has_master_key": (CONFIG_DIR / "master.key").exists(),
+            "bcrypt_rounds": BCRYPT_ROUNDS,
         }
 
     @app.get("/api/health", response_model=HealthResponse)

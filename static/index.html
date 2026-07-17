@@ -147,7 +147,7 @@ button:focus:not(:focus-visible), input:focus:not(:focus-visible) { outline: non
   .calendar-day { font-size: 0.82rem; }
   .stats-grid { grid-template-columns: 1fr 1fr; gap: 0.6rem; }
   .stat-value { font-size: 1.6rem; }
-  .mobile-bottom-nav { display: flex !important; position: fixed; bottom: 0; left: 0; right: 0; height: 52px; background: rgba(255,255,255,0.94); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-top: 1px solid var(--border-light); z-index: 999; padding-bottom: env(safe-area-inset-bottom,0); }
+  .mobile-bottom-nav { display: flex !important; position: fixed; bottom: 0; left: 0; right: 0; height: 52px; background: rgba(255,255,255,0.97); border-top: 1px solid var(--border-light); z-index: 999; padding-bottom: env(safe-area-inset-bottom,0); -webkit-transform: translateZ(0); transform: translateZ(0); will-change: transform; }
   .mobile-nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); font-size: 0.62rem; text-decoration: none; cursor: pointer; gap: 0; transition: color var(--transition); padding: 0.2rem 0; -webkit-tap-highlight-color: transparent; }
   .mobile-nav-item .icon { font-size: 1.15rem; transition: transform var(--transition); }
   .mobile-nav-item.active { color: var(--primary); }
@@ -160,7 +160,6 @@ button:focus:not(:focus-visible), input:focus:not(:focus-visible) { outline: non
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-  .modal-backdrop.show, #lockScreen { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
   #lockScreen { background: rgba(24,22,20,0.9); }
 }
 </style>
@@ -496,6 +495,6 @@ button:focus:not(:focus-visible), input:focus:not(:focus-visible) { outline: non
 </div>
 
 <script src="/static/bootstrap.bundle.min.js"></script>
-<script src="/static/app.js?v=3.3"></script>
+<script src="/static/app.js?v=3.4"></script>
 </body>
 </html>

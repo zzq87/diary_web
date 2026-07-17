@@ -182,6 +182,7 @@ class SettingsResponse(BaseModel):
     session_timeout: int
     max_login_attempts: int
     has_master_key: bool
+    bcrypt_rounds: int
 
 
 class HealthResponse(BaseModel):

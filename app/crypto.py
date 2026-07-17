@@ -1,11 +1,11 @@
-"""加密模块 — AES-256-GCM，无降级回退"""
+"""加密模块 — ChaCha20-Poly1305，向后兼容 AES-256-GCM"""
 
 import os
 import base64
 import logging
 from pathlib import Path
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305, AESGCM
 
 from .config import MASTER_KEY_FILE, SECRET_KEY, safe_chmod
 
@@ -28,16 +28,24 @@ def get_or_create_master_key() -> bytes:
 
 
 def encrypt_data(plaintext: bytes, key: bytes) -> str:
-    aesgcm = AESGCM(key)
+    chacha = ChaCha20Poly1305(key)
     nonce = os.urandom(12)
-    ciphertext = aesgcm.encrypt(nonce, plaintext, None)
+    ciphertext = chacha.encrypt(nonce, plaintext, None)
     return base64.b64encode(nonce + ciphertext).decode()
 
 
 def decrypt_data(ciphertext_b64: str, key: bytes) -> bytes:
     raw = base64.b64decode(ciphertext_b64)
     if len(raw) < 28:
-        raise ValueError("密文过短，不是 AES-GCM 格式")
+        raise ValueError("密文过短")
     nonce, ciphertext = raw[:12], raw[12:]
-    aesgcm = AESGCM(key)
-    return aesgcm.decrypt(nonce, ciphertext, None)
+
+    # Try ChaCha20-Poly1305 (new), fallback to AES-GCM (legacy)
+    for cls in (ChaCha20Poly1305, AESGCM):
+        try:
+            cipher = cls(key)
+            return bytes(cipher.decrypt(nonce, ciphertext, None))
+        except Exception:
+            continue
+
+    raise ValueError("解密失败: 所有算法均无法解密")

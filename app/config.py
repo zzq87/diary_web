@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     rate_limit_window: int = Field(default=60, validation_alias="DIARY_RATE_LIMIT_WINDOW", ge=10, le=3600)
     rate_limit_max: int = Field(default=100, validation_alias="DIARY_RATE_LIMIT_MAX", ge=10, le=1000)
     encryption_enabled: bool = Field(default=True, validation_alias="DIARY_ENCRYPT")
+    bcrypt_rounds: int = Field(default=10, validation_alias="DIARY_BCRYPT_ROUNDS", ge=4, le=16)
     pbkdf2_iterations: int = Field(default=600000, validation_alias="DIARY_PBKDF2_ITERATIONS", ge=50000, le=2000000)
     default_password: str = Field(default="admin123", validation_alias="DIARY_DEFAULT_PASSWORD")
 
@@ -102,6 +103,7 @@ LOGIN_LOCKOUT_SECONDS = settings.login_lockout_seconds
 RATE_LIMIT_WINDOW = settings.rate_limit_window
 RATE_LIMIT_MAX = settings.rate_limit_max
 ENCRYPTION_ENABLED = settings.encryption_enabled
+BCRYPT_ROUNDS = settings.bcrypt_rounds
 PBKDF2_ITERATIONS = settings.pbkdf2_iterations
 DEFAULT_PASSWORD = settings.default_password
 PORT = settings.port
